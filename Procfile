@@ -1,1 +1,1 @@
-web: dotnet publish -c Release -o ./publish && cd ./publish && dotnet TradingSignalsApi.dll
+web: cd $HOME && dotnet TradingSignalsApi.dll
