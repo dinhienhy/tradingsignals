@@ -1,1 +1,1 @@
-web: cd $HOME && dotnet TradingSignalsApi.dll
+web: dotnet TradingSignalsApi.dll
