@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj": {}
+    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingsignals\\TradingSignalsApi.csproj": {}
   },
   "projects": {
-    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj": {
+    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingsignals\\TradingSignalsApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj",
+        "projectUniqueName": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingsignals\\TradingSignalsApi.csproj",
         "projectName": "TradingSignalsApi",
-        "projectPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj",
+        "projectPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingsignals\\TradingSignalsApi.csproj",
         "packagesPath": "C:\\Users\\Admin\\.nuget\\packages\\",
-        "outputPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\obj\\",
+        "outputPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingsignals\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
