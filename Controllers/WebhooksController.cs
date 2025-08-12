@@ -59,32 +59,59 @@ namespace TradingSignalsApi.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<WebhookConfig>> CreateWebhookConfig(WebhookConfig webhookConfig)
         {
-            if (!ValidateConfigApiKey())
+            try
             {
-                return Unauthorized("Invalid API key");
-            }
+                if (!ValidateConfigApiKey())
+                {
+                    return Unauthorized("Invalid API key");
+                }
 
-            if (!ModelState.IsValid)
+                if (!ModelState.IsValid)
+                {
+                    _logger.LogWarning("Invalid model state when creating webhook: {@ModelState}", ModelState);
+                    return BadRequest(ModelState);
+                }
+
+                // Log input data for debugging
+                _logger.LogInformation("Attempting to create webhook with path {Path}, secret length {SecretLength}, description {Description}", 
+                    webhookConfig.Path, 
+                    webhookConfig.Secret?.Length ?? 0,
+                    webhookConfig.Description ?? "(none)");
+
+                // Check if path is already in use
+                if (await _context.WebhookConfigs.AnyAsync(w => w.Path == webhookConfig.Path))
+                {
+                    _logger.LogWarning("Attempt to create webhook with duplicate path: {Path}", webhookConfig.Path);
+                    return Conflict("A webhook with this path already exists");
+                }
+
+                _logger.LogInformation("Adding webhook to database...");
+                _context.WebhookConfigs.Add(webhookConfig);
+                
+                _logger.LogInformation("Saving changes to database...");
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Created new webhook configuration with ID {Id} and path {Path}", 
+                    webhookConfig.Id, webhookConfig.Path);
+
+                return CreatedAtAction(nameof(GetWebhookConfigs), new { id = webhookConfig.Id }, webhookConfig);
+            }
+            catch (DbUpdateException dbEx)
             {
-                return BadRequest(ModelState);
+                _logger.LogError(dbEx, "Database error creating webhook configuration: {Message}", dbEx.Message);
+                if (dbEx.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: {Message}", dbEx.InnerException.Message);
+                }
+                return StatusCode(500, "A database error occurred while creating the webhook configuration");
             }
-
-            // Check if path is already in use
-            if (await _context.WebhookConfigs.AnyAsync(w => w.Path == webhookConfig.Path))
+            catch (Exception ex)
             {
-                _logger.LogWarning("Attempt to create webhook with duplicate path: {Path}", webhookConfig.Path);
-                return Conflict("A webhook with this path already exists");
-            }
-
-            _context.WebhookConfigs.Add(webhookConfig);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("Created new webhook configuration with ID {Id} and path {Path}", 
-                webhookConfig.Id, webhookConfig.Path);
-
-            return CreatedAtAction(nameof(GetWebhookConfigs), new { id = webhookConfig.Id }, webhookConfig);
+                _logger.LogError(ex, "Unhandled exception creating webhook configuration: {Message}", ex.Message);
+                return StatusCode(500, "An error occurred while creating the webhook configuration");}
         }
 
         /// <summary>
