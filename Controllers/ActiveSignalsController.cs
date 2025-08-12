@@ -55,7 +55,8 @@ namespace TradingSignalsApi.Controllers
 
             if (activeSignals.Count == 0)
             {
-                return NoContent();
+                // Trả về mảng rỗng thay vì NoContent để tránh lỗi JSON parse ở client
+                return Ok(new List<ActiveTradingSignal>());
             }
 
             _logger.LogInformation("Retrieved {Count} active signals", activeSignals.Count);
@@ -88,7 +89,8 @@ namespace TradingSignalsApi.Controllers
 
             if (activeSignals.Count == 0)
             {
-                return NoContent();
+                // Trả về mảng rỗng thay vì NoContent để tránh lỗi JSON parse ở client
+                return Ok(new List<ActiveTradingSignal>());
             }
 
             _logger.LogInformation("Retrieved {Count} active signals for type {Type}", activeSignals.Count, type);

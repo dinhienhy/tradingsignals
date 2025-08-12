@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("TradingSignalsApi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d5dbe96234613771f1d4b232debda537f0de23cf")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a1acbebea630ce5046c1ecad0d607d5120ee3c36")]
 [assembly: System.Reflection.AssemblyProductAttribute("TradingSignalsApi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TradingSignalsApi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
