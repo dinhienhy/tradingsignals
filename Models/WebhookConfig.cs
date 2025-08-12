@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TradingSignalsApi.Models
 {
@@ -10,6 +11,8 @@ namespace TradingSignalsApi.Models
         /// <summary>
         /// Primary key for the webhook configuration
         /// </summary>
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
 
         /// <summary>

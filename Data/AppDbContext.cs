@@ -34,6 +34,19 @@ namespace TradingSignalsApi.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            
+            // Configure ID properties to use Identity columns in PostgreSQL
+            modelBuilder.Entity<WebhookConfig>()
+                .Property(w => w.Id)
+                .UseIdentityColumn();
+                
+            modelBuilder.Entity<TradingSignal>()
+                .Property(t => t.Id)
+                .UseIdentityColumn();
+                
+            modelBuilder.Entity<ActiveTradingSignal>()
+                .Property(a => a.Id)
+                .UseIdentityColumn();
 
             // Configure WebhookConfig path to be unique
             modelBuilder.Entity<WebhookConfig>()
