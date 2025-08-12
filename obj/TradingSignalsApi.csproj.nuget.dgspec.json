@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\TradingSignalsApi\\TradingSignalsApi.csproj": {}
+    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj": {}
   },
   "projects": {
-    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\TradingSignalsApi\\TradingSignalsApi.csproj": {
+    "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\TradingSignalsApi\\TradingSignalsApi.csproj",
+        "projectUniqueName": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj",
         "projectName": "TradingSignalsApi",
-        "projectPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\TradingSignalsApi\\TradingSignalsApi.csproj",
+        "projectPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\TradingSignalsApi.csproj",
         "packagesPath": "C:\\Users\\Admin\\.nuget\\packages\\",
-        "outputPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\TradingSignalsApi\\obj\\",
+        "outputPath": "D:\\Workspace\\CascadeProjects\\BoxTradeDiscord\\tradingSignals\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -22,7 +22,7 @@
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
-          "net9.0"
+          "net8.0"
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
@@ -30,8 +30,8 @@
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net9.0": {
-            "targetAlias": "net9.0",
+          "net8.0": {
+            "targetAlias": "net8.0",
             "projectReferences": {}
           }
         },
@@ -48,30 +48,30 @@
         "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
-        "net9.0": {
-          "targetAlias": "net9.0",
+        "net8.0": {
+          "targetAlias": "net8.0",
           "dependencies": {
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
-              "version": "[9.0.4, )"
+              "version": "[8.0.0, )"
             },
             "Microsoft.EntityFrameworkCore.Design": {
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
               "suppressParent": "All",
               "target": "Package",
-              "version": "[9.0.8, )"
+              "version": "[8.0.0, )"
             },
             "Microsoft.EntityFrameworkCore.Sqlite": {
               "target": "Package",
-              "version": "[9.0.8, )"
+              "version": "[8.0.0, )"
             },
             "Npgsql.EntityFrameworkCore.PostgreSQL": {
               "target": "Package",
-              "version": "[9.0.4, )"
+              "version": "[8.0.0, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
-              "version": "[9.0.3, )"
+              "version": "[6.5.0, )"
             }
           },
           "imports": [
@@ -85,6 +85,24 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Ref",
+              "version": "[8.0.18, 8.0.18]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Host.win-x64",
+              "version": "[8.0.18, 8.0.18]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Ref",
+              "version": "[8.0.18, 8.0.18]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.18, 8.0.18]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"

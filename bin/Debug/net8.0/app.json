@@ -1,0 +1,46 @@
+{
+  "name": "Trading Signals API",
+  "description": "ASP.NET Core API for managing trading signals",
+  "keywords": [
+    "dotnet",
+    "aspnetcore",
+    "api",
+    "trading"
+  ],
+  "website": "",
+  "repository": "",
+  "stack": "heroku-22",
+  "buildpacks": [
+    {
+      "url": "https://github.com/jincod/dotnetcore-buildpack"
+    }
+  ],
+  "env": {
+    "API_KEY": {
+      "description": "API Key for securing signals endpoints",
+      "value": "kyuoj1KRGILRy4Le9i8NtXGDdFIspy07",
+      "required": true
+    },
+    "CONFIG_API_KEY": {
+      "description": "API Key for webhook configuration management",
+      "value": "uHJuLHD70Ju6N97mkQcmWzVTBUxsnscI",
+      "required": true
+    },
+    "ASPNETCORE_ENVIRONMENT": {
+      "description": "ASP.NET Core environment name",
+      "value": "Production",
+      "required": true
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql:essential-0"
+    }
+  ]
+}
