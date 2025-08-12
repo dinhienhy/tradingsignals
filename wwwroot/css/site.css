@@ -1,0 +1,64 @@
+/* Custom styles for the Trading Signals API */
+
+body {
+    background-color: #f8f9fa;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    border: none;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #eaecef;
+}
+
+pre {
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 20px;
+    overflow-x: auto;
+}
+
+code {
+    color: #0366d6;
+}
+
+.webhook-item {
+    transition: all 0.2s;
+}
+
+.webhook-item:hover {
+    background-color: #f5f9ff;
+}
+
+.btn-icon {
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+}
+
+.secret-field {
+    font-family: monospace;
+    position: relative;
+}
+
+.secret-mask {
+    display: inline-block;
+    width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.modal-backdrop {
+    opacity: 0.5 !important;
+}

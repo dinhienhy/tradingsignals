@@ -1,0 +1,6 @@
+@TradingSignalsApi_HostAddress = http://localhost:5124
+
+GET {{TradingSignalsApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
