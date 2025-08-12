@@ -84,6 +84,17 @@ builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
+// Apply migrations automatically
+if (app.Environment.IsProduction())
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        var context = services.GetRequiredService<AppDbContext>();
+        context.Database.Migrate();
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
