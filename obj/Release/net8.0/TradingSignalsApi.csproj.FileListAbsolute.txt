@@ -142,3 +142,11 @@ D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\p
 D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\TradingSignalsApi.deps.json
 D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\TradingSignalsApi.runtimeconfig.json
 D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\TradingSignalsApi.staticwebassets.endpoints.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\web.config
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\app.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\appsettings.Development.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\appsettings.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\project.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\TradingSignalsApi.deps.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\TradingSignalsApi.runtimeconfig.json
+D:\Workspace\CascadeProjects\BoxTradeDiscord\tradingsignals\bin\Release\net8.0\publish\publish\TradingSignalsApi.staticwebassets.endpoints.json
