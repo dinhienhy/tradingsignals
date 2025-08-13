@@ -17,9 +17,19 @@ namespace TradingSignalsApi.Migrations
                     -- Optional safety backup
                     CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_ts_backup"" AS SELECT * FROM ""ActiveTradingSignals"";
 
-                    -- Convert text to timestamp (without time zone)
+                    -- First update empty strings to NULL
+                    UPDATE ""ActiveTradingSignals"" 
+                    SET ""Timestamp"" = NULL 
+                    WHERE ""Timestamp"" = '' OR ""Timestamp"" IS NULL;
+
+                    -- Then convert text to timestamp (without time zone)
                     ALTER TABLE ""ActiveTradingSignals""
-                    ALTER COLUMN ""Timestamp"" TYPE timestamp WITHOUT time zone USING NULLIF(""Timestamp"", '')::timestamp;
+                    ALTER COLUMN ""Timestamp"" TYPE timestamp WITHOUT time zone 
+                    USING 
+                      CASE 
+                        WHEN ""Timestamp"" IS NULL THEN NULL 
+                        ELSE ""Timestamp""::timestamp 
+                      END;
                 ");
             }
         }

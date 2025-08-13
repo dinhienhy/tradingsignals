@@ -17,9 +17,19 @@ namespace TradingSignalsApi.Migrations
                     -- First, create a backup of the table (optional but safe)
                     CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_backup"" AS SELECT * FROM ""ActiveTradingSignals"";
                     
-                    -- Alter the Price column from text to numeric (decimal)
+                    -- First update empty strings to NULL
+                    UPDATE ""ActiveTradingSignals"" 
+                    SET ""Price"" = NULL 
+                    WHERE ""Price"" = '' OR ""Price"" IS NULL;
+                    
+                    -- Then alter the Price column from text to numeric (decimal)
                     ALTER TABLE ""ActiveTradingSignals"" 
-                    ALTER COLUMN ""Price"" TYPE numeric USING NULLIF(""Price"", '')::numeric;
+                    ALTER COLUMN ""Price"" TYPE numeric 
+                    USING 
+                      CASE 
+                        WHEN ""Price"" IS NULL THEN NULL 
+                        ELSE ""Price""::numeric 
+                      END;
                 ");
             }
         }
