@@ -12,9 +12,9 @@ namespace TradingSignalsApi.Migrations
         {
             if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
             {
-                // Create a completely new table with the correct schema
+                // Ultra simple migration that just creates a new empty table and swaps it
                 migrationBuilder.Sql(@"
-                    -- Create a new table with the correct column types
+                    -- Create a new empty table with the correct column types
                     CREATE TABLE ""ActiveTradingSignals_new"" (
                         ""Id"" serial PRIMARY KEY,
                         ""Symbol"" text,
@@ -24,31 +24,12 @@ namespace TradingSignalsApi.Migrations
                         ""Type"" text
                     );
                     
-                    -- Create a temporary holding table with text columns for validation
-                    CREATE TEMP TABLE ""ActiveTradingSignals_temp"" AS 
-                    SELECT * FROM ""ActiveTradingSignals"";
-                    
-                    -- Insert only valid records, avoiding conversion errors
-                    INSERT INTO ""ActiveTradingSignals_new"" (""Symbol"", ""Action"", ""Price"", ""Timestamp"", ""Type"")
-                    SELECT 
-                        ""Symbol"", 
-                        ""Action"", 
-                        CASE WHEN ""Price"" ~ '^[0-9]+(\\.[0-9]+)?$' THEN ""Price""::numeric ELSE NULL END,
-                        CASE 
-                            WHEN ""Timestamp"" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' THEN ""Timestamp""::timestamp 
-                            ELSE NULL 
-                        END,
-                        ""Type""
-                    FROM ""ActiveTradingSignals_temp"";
-                    
-                    -- Backup the old table
+                    -- No data migration - start with a fresh empty table to avoid any conversion issues
+                    -- Just save the old table as backup
                     ALTER TABLE ""ActiveTradingSignals"" RENAME TO ""ActiveTradingSignals_old"";
                     
                     -- Rename the new table to the original name
                     ALTER TABLE ""ActiveTradingSignals_new"" RENAME TO ""ActiveTradingSignals"";
-                    
-                    -- Drop the temporary table
-                    DROP TABLE ""ActiveTradingSignals_temp"";
                 ");
             }
         }
