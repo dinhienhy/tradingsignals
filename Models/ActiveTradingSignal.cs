@@ -25,6 +25,22 @@ namespace TradingSignalsApi.Models
         public string UniqueKey { get; set; }
         
         // Flag to mark if the signal has been used by MT5 bot
-        public bool Used { get; set; } = false;
+        private bool _used = false;
+        
+        // Trong PostgreSQL, trường này đang là integer, nhưng trong code chúng ta muốn sử dụng như boolean
+        [NotMapped]
+        public bool Used 
+        { 
+            get => _used; 
+            set => _used = value; 
+        }
+        
+        // Trường này sẽ ánh xạ với cột integer trong database
+        [Column("Used")]
+        public int UsedAsInt 
+        { 
+            get => _used ? 1 : 0; 
+            set => _used = value != 0; 
+        }
     }
 }
