@@ -10,8 +10,11 @@ namespace TradingSignalsApi.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // PostgreSQL-specific commands to set the Id columns as identity columns
-            migrationBuilder.Sql(@"
+            // Only run on PostgreSQL
+            if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
+            {
+                // PostgreSQL-specific commands to set the Id columns as identity columns
+                migrationBuilder.Sql(@"
                 -- Drop the existing default values and sequences if they exist
                 DO $$ 
                 BEGIN
@@ -57,24 +60,29 @@ namespace TradingSignalsApi.Migrations
                 ALTER TABLE ""WebhookConfigs"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""WebhookConfigs_Id_seq""');
                 ALTER TABLE ""TradingSignals"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""TradingSignals_Id_seq""');
                 ALTER TABLE ""ActiveTradingSignals"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""ActiveTradingSignals_Id_seq""');
-            ");
+                ");
+            }
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Remove the identity column configuration
-            migrationBuilder.Sql(@"
-                -- Remove default value sequences
-                ALTER TABLE ""WebhookConfigs"" ALTER COLUMN ""Id"" DROP DEFAULT;
-                ALTER TABLE ""TradingSignals"" ALTER COLUMN ""Id"" DROP DEFAULT;
-                ALTER TABLE ""ActiveTradingSignals"" ALTER COLUMN ""Id"" DROP DEFAULT;
-                
-                -- Drop sequences
-                DROP SEQUENCE IF EXISTS ""WebhookConfigs_Id_seq"";
-                DROP SEQUENCE IF EXISTS ""TradingSignals_Id_seq"";
-                DROP SEQUENCE IF EXISTS ""ActiveTradingSignals_Id_seq"";
-            ");
+            // Only run on PostgreSQL
+            if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
+            {
+                // Remove the identity column configuration
+                migrationBuilder.Sql(@"
+                    -- Remove default value sequences
+                    ALTER TABLE ""WebhookConfigs"" ALTER COLUMN ""Id"" DROP DEFAULT;
+                    ALTER TABLE ""TradingSignals"" ALTER COLUMN ""Id"" DROP DEFAULT;
+                    ALTER TABLE ""ActiveTradingSignals"" ALTER COLUMN ""Id"" DROP DEFAULT;
+                    
+                    -- Drop sequences
+                    DROP SEQUENCE IF EXISTS ""WebhookConfigs_Id_seq"";
+                    DROP SEQUENCE IF EXISTS ""TradingSignals_Id_seq"";
+                    DROP SEQUENCE IF EXISTS ""ActiveTradingSignals_Id_seq"";
+                ");
+            }
         }
     }
 }
