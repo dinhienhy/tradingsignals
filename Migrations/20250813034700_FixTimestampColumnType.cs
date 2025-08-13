@@ -21,7 +21,8 @@ namespace TradingSignalsApi.Migrations
                         ""Action"" text,
                         ""Price"" numeric,
                         ""Timestamp"" timestamp,
-                        ""Type"" text
+                        ""Type"" text,
+                        ""UniqueKey"" text
                     );
                     
                     -- No data migration - start with a fresh empty table to avoid any conversion issues
