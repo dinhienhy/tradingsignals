@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Linq;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -94,6 +96,67 @@ namespace TradingSignalsApi.Controllers
             }
 
             _logger.LogInformation("Retrieved {Count} active signals for type {Type}", activeSignals.Count, type);
+            return Ok(activeSignals);
+        }
+
+        /// <summary>
+        /// Mark a signal as used by MT5 bot
+        /// </summary>
+        /// <param name="id">The signal ID to mark as used</param>
+        /// <returns>The updated signal</returns>
+        [HttpPut("markused/{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<ActiveTradingSignal>> MarkAsUsed(int id)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to mark signal as used");
+                return Unauthorized("Invalid API key");
+            }
+
+            var signal = await _context.ActiveTradingSignals.FindAsync(id);
+            
+            if (signal == null)
+            {
+                _logger.LogWarning("Signal with ID {Id} not found for marking as used", id);
+                return NotFound($"Signal with ID {id} not found");
+            }
+
+            // Đánh dấu tín hiệu là đã được sử dụng
+            signal.Used = true;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Signal with ID {Id} marked as used", id);
+            return Ok(signal);
+        }
+        
+        /// <summary>
+        /// Get unused active trading signals (one per Symbol+Type combination)
+        /// </summary>
+        /// <returns>List of unused active trading signals</returns>
+        [HttpGet("unused")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<IEnumerable<ActiveTradingSignal>>> GetUnusedActiveSignals()
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to unused active signals");
+                return Unauthorized("Invalid API key");
+            }
+
+            var activeSignals = await _context.ActiveTradingSignals
+                .Where(s => s.Used == false)
+                .OrderByDescending(s => s.Timestamp)
+                .ToListAsync();
+
+            _logger.LogInformation("Retrieved {Count} unused active signals", activeSignals.Count);
             return Ok(activeSignals);
         }
     }
