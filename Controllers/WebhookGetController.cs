@@ -74,11 +74,13 @@ namespace TradingSignalsApi.Controllers
                 return NotFound("No active signal found for this webhook path and symbol combination");
             }
             
-            // Return only the Action and Price
+            // Trả về Action, Price, Id và Used theo yêu cầu
             var result = new
             {
+                Id = activeSignal.Id,
                 Action = activeSignal.Action,
-                Price = activeSignal.Price
+                Price = activeSignal.Price,
+                Used = activeSignal.Used
             };
             
             _logger.LogInformation("Found simplified active signal for path: {Path} and symbol: {Symbol}", path, symbol);
