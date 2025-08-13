@@ -12,21 +12,37 @@ namespace TradingSignalsApi.Migrations
         {
             if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
             {
-                // PostgreSQL: First create backup table
-                migrationBuilder.Sql(@"CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_ts_backup"" AS SELECT * FROM ""ActiveTradingSignals""");
-                
-                // Step 1: Clean up the data first - set all empty or problematic values to NULL
-                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""Timestamp"" = NULL WHERE ""Timestamp"" = '' OR ""Timestamp"" IS NULL OR ""Timestamp"" NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(.*)'");
-
-                // Step 2: Add a temporary column with the correct type
-                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" ADD COLUMN ""TimestampNew"" timestamp");
-
-                // Step 3: Copy valid data to the new column
-                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""TimestampNew"" = ""Timestamp""::timestamp WHERE ""Timestamp"" IS NOT NULL");
-
-                // Step 4: Drop the old column and rename the new one
-                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" DROP COLUMN ""Timestamp""");
-                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" RENAME COLUMN ""TimestampNew"" TO ""Timestamp""");
+                // Create a completely new table with the correct schema
+                migrationBuilder.Sql(@"
+                    -- Create a new table with the correct column types
+                    CREATE TABLE ""ActiveTradingSignals_new"" (
+                        ""Id"" serial PRIMARY KEY,
+                        ""Symbol"" text,
+                        ""Action"" text,
+                        ""Price"" numeric,
+                        ""Timestamp"" timestamp,
+                        ""Type"" text
+                    );
+                    
+                    -- Insert only valid records, avoiding conversion errors
+                    INSERT INTO ""ActiveTradingSignals_new"" (""Symbol"", ""Action"", ""Price"", ""Timestamp"", ""Type"")
+                    SELECT 
+                        ""Symbol"", 
+                        ""Action"", 
+                        CASE WHEN ""Price"" ~ '^[0-9]+(\\.[0-9]+)?$' THEN ""Price""::numeric ELSE NULL END,
+                        CASE 
+                            WHEN ""Timestamp"" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' THEN ""Timestamp""::timestamp 
+                            ELSE NULL 
+                        END,
+                        ""Type""
+                    FROM ""ActiveTradingSignals"";
+                    
+                    -- Backup the old table
+                    ALTER TABLE ""ActiveTradingSignals"" RENAME TO ""ActiveTradingSignals_old"";
+                    
+                    -- Rename the new table to the original name
+                    ALTER TABLE ""ActiveTradingSignals_new"" RENAME TO ""ActiveTradingSignals"";
+                ");
             }
         }
 
