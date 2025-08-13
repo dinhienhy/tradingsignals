@@ -24,6 +24,10 @@ namespace TradingSignalsApi.Migrations
                         ""Type"" text
                     );
                     
+                    -- Create a temporary holding table with text columns for validation
+                    CREATE TEMP TABLE ""ActiveTradingSignals_temp"" AS 
+                    SELECT * FROM ""ActiveTradingSignals"";
+                    
                     -- Insert only valid records, avoiding conversion errors
                     INSERT INTO ""ActiveTradingSignals_new"" (""Symbol"", ""Action"", ""Price"", ""Timestamp"", ""Type"")
                     SELECT 
@@ -35,13 +39,16 @@ namespace TradingSignalsApi.Migrations
                             ELSE NULL 
                         END,
                         ""Type""
-                    FROM ""ActiveTradingSignals"";
+                    FROM ""ActiveTradingSignals_temp"";
                     
                     -- Backup the old table
                     ALTER TABLE ""ActiveTradingSignals"" RENAME TO ""ActiveTradingSignals_old"";
                     
                     -- Rename the new table to the original name
                     ALTER TABLE ""ActiveTradingSignals_new"" RENAME TO ""ActiveTradingSignals"";
+                    
+                    -- Drop the temporary table
+                    DROP TABLE ""ActiveTradingSignals_temp"";
                 ");
             }
         }
