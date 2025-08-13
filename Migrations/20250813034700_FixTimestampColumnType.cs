@@ -12,25 +12,21 @@ namespace TradingSignalsApi.Migrations
         {
             if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
             {
-                // PostgreSQL: convert Timestamp column from text to timestamp (without time zone)
-                migrationBuilder.Sql(@"
-                    -- Optional safety backup
-                    CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_ts_backup"" AS SELECT * FROM ""ActiveTradingSignals"";
+                // PostgreSQL: First create backup table
+                migrationBuilder.Sql(@"CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_ts_backup"" AS SELECT * FROM ""ActiveTradingSignals""");
+                
+                // Step 1: Clean up the data first - set all empty or problematic values to NULL
+                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""Timestamp"" = NULL WHERE ""Timestamp"" = '' OR ""Timestamp"" IS NULL OR ""Timestamp"" NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(.*)'");
 
-                    -- First update empty strings to NULL
-                    UPDATE ""ActiveTradingSignals"" 
-                    SET ""Timestamp"" = NULL 
-                    WHERE ""Timestamp"" = '' OR ""Timestamp"" IS NULL;
+                // Step 2: Add a temporary column with the correct type
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" ADD COLUMN ""TimestampNew"" timestamp");
 
-                    -- Then convert text to timestamp (without time zone)
-                    ALTER TABLE ""ActiveTradingSignals""
-                    ALTER COLUMN ""Timestamp"" TYPE timestamp WITHOUT time zone 
-                    USING 
-                      CASE 
-                        WHEN ""Timestamp"" IS NULL THEN NULL 
-                        ELSE ""Timestamp""::timestamp 
-                      END;
-                ");
+                // Step 3: Copy valid data to the new column
+                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""TimestampNew"" = ""Timestamp""::timestamp WHERE ""Timestamp"" IS NOT NULL");
+
+                // Step 4: Drop the old column and rename the new one
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" DROP COLUMN ""Timestamp""");
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" RENAME COLUMN ""TimestampNew"" TO ""Timestamp""");
             }
         }
 

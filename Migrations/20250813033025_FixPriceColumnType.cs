@@ -12,25 +12,21 @@ namespace TradingSignalsApi.Migrations
         {
             if (migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL")
             {
-                // PostgreSQL-specific SQL to fix the Price column in ActiveTradingSignals from text to numeric
-                migrationBuilder.Sql(@"
-                    -- First, create a backup of the table (optional but safe)
-                    CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_backup"" AS SELECT * FROM ""ActiveTradingSignals"";
-                    
-                    -- First update empty strings to NULL
-                    UPDATE ""ActiveTradingSignals"" 
-                    SET ""Price"" = NULL 
-                    WHERE ""Price"" = '' OR ""Price"" IS NULL;
-                    
-                    -- Then alter the Price column from text to numeric (decimal)
-                    ALTER TABLE ""ActiveTradingSignals"" 
-                    ALTER COLUMN ""Price"" TYPE numeric 
-                    USING 
-                      CASE 
-                        WHEN ""Price"" IS NULL THEN NULL 
-                        ELSE ""Price""::numeric 
-                      END;
-                ");
+                // PostgreSQL: First create backup table
+                migrationBuilder.Sql(@"CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_backup"" AS SELECT * FROM ""ActiveTradingSignals""");
+                
+                // Step 1: Clean up the data first - set all empty or problematic values to NULL
+                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""Price"" = NULL WHERE ""Price"" = '' OR ""Price"" IS NULL OR ""Price"" !~ '^[0-9]+(\\.[0-9]+)?$'");
+
+                // Step 2: Add a temporary column with the correct type
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" ADD COLUMN ""PriceNew"" numeric");
+
+                // Step 3: Copy valid data to the new column
+                migrationBuilder.Sql(@"UPDATE ""ActiveTradingSignals"" SET ""PriceNew"" = ""Price""::numeric WHERE ""Price"" IS NOT NULL");
+
+                // Step 4: Drop the old column and rename the new one
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" DROP COLUMN ""Price""");
+                migrationBuilder.Sql(@"ALTER TABLE ""ActiveTradingSignals"" RENAME COLUMN ""PriceNew"" TO ""Price""");
             }
         }
 
