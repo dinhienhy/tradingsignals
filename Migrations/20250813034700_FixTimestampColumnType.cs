@@ -15,11 +15,11 @@ namespace TradingSignalsApi.Migrations
                 // PostgreSQL: convert Timestamp column from text to timestamp (without time zone)
                 migrationBuilder.Sql(@"
                     -- Optional safety backup
-                    CREATE TABLE IF NOT EXISTS \"ActiveTradingSignals_ts_backup\" AS SELECT * FROM \"ActiveTradingSignals\";
+                    CREATE TABLE IF NOT EXISTS ""ActiveTradingSignals_ts_backup"" AS SELECT * FROM ""ActiveTradingSignals"";
 
                     -- Convert text to timestamp (without time zone)
-                    ALTER TABLE \"ActiveTradingSignals\"
-                    ALTER COLUMN \"Timestamp\" TYPE timestamp WITHOUT time zone USING NULLIF(\"Timestamp\", '')::timestamp;
+                    ALTER TABLE ""ActiveTradingSignals""
+                    ALTER COLUMN ""Timestamp"" TYPE timestamp WITHOUT time zone USING NULLIF(""Timestamp"", '')::timestamp;
                 ");
             }
         }
@@ -31,10 +31,10 @@ namespace TradingSignalsApi.Migrations
             {
                 // Revert back to text if needed
                 migrationBuilder.Sql(@"
-                    ALTER TABLE \"ActiveTradingSignals\"
-                    ALTER COLUMN \"Timestamp\" TYPE text USING \"Timestamp\"::text;
+                    ALTER TABLE ""ActiveTradingSignals""
+                    ALTER COLUMN ""Timestamp"" TYPE text USING ""Timestamp""::text;
 
-                    DROP TABLE IF EXISTS \"ActiveTradingSignals_ts_backup\";
+                    DROP TABLE IF EXISTS ""ActiveTradingSignals_ts_backup"";
                 ");
             }
         }
