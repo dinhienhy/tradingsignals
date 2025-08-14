@@ -113,7 +113,8 @@ namespace TradingSignalsApi.Controllers
                     existingActiveSignal.Action = signal.Action;
                     existingActiveSignal.Price = signal.Price;
                     existingActiveSignal.Timestamp = signal.Timestamp;
-                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}", signal.Symbol, path);
+                    existingActiveSignal.Used = false; // Đặt lại trạng thái Used về false khi có tín hiệu mới
+                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}, reset Used status", signal.Symbol, path);
                 }
                 else
                 {
