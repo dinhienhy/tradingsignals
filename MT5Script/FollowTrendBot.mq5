@@ -318,33 +318,64 @@ void ParseSignalJSON(string json, SignalInfo &s)
 //================= CORE =====================
 void ProcessSignals()
 {
+   if(Enable_Logging) Print("\n🔄 PROCESSING SIGNALS - Entry ID=", g_entrySignal.id, ", lastProcessed=", g_lastProcessedEntryId);
+   
    // đủ hướng?
    if(g_trendSignal.action=="" || g_entrySignal.action==""){
-      if(Enable_Logging) Print("Skip: missing action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
+      if(Enable_Logging) Print("❌ Skip: missing action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
       return;
    }
    // normalize lần nữa cho chắc
    string trendAct = NormalizeAction(g_trendSignal.action);
    string entryAct = NormalizeAction(g_entrySignal.action);
    if(trendAct=="" || entryAct==""){
-      if(Enable_Logging) Print("Skip: unknown action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
+      if(Enable_Logging) Print("❌ Skip: unknown action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
       return;
    }
    // khớp hướng
    if(trendAct != entryAct){
-      if(Enable_Logging) Print("Skip: mismatch. trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
+      if(Enable_Logging) Print("❌ Skip: mismatch. trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
       return;
    }
-   // chống trùng theo id
-   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId){
-      if(Enable_Logging) Print("Skip: entry id ",g_entrySignal.id," already processed");
+   
+   // Kiểm tra nếu có lệnh đang mở cùng loại
+   bool hasOpenPositionSameType = false;
+   for(int i=PositionsTotal()-1; i>=0; i--) {
+      ulong tk = PositionGetTicket(i); if(tk<=0) continue;
+      if(!PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC) != Magic_Number) continue;
+      
+      ENUM_POSITION_TYPE t = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      string posType = PosTypeToStr(t);
+      
+      if((t == POSITION_TYPE_BUY && entryAct == "Buy") || 
+         (t == POSITION_TYPE_SELL && entryAct == "Sell")) {
+         hasOpenPositionSameType = true;
+         if(Enable_Logging) Print("❌ Skip: already have open ", posType, " position #", tk);
+         break;
+      }
+   }
+   
+   if(hasOpenPositionSameType) return;
+   
+   // chống trùng theo id - nếu g_entrySignal.timestamp > 0 && id đã xử lý trong phút hiện tại
+   MqlDateTime now; TimeCurrent(now);
+   MqlDateTime signalTime; TimeToStruct(g_entrySignal.timestamp, signalTime);
+   
+   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId && 
+      now.hour==signalTime.hour && now.min==signalTime.min){
+      if(Enable_Logging) Print("❌ Skip: entry id ",g_entrySignal.id," already processed in this minute");
       return;
    }
+   
    // nếu server đã used=true thì bỏ qua (an toàn)
    if(g_entrySignal.used){
-      if(Enable_Logging) Print("Skip: entry.used=true (id=",g_entrySignal.id,")");
+      if(Enable_Logging) Print("❌ Skip: entry.used=true (id=",g_entrySignal.id,")");
       return;
    }
+   
+   if(Enable_Logging) Print("✅ Signal validation passed - continuing with trade entry");
    double cur;
    if(entryAct == "Buy") cur = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    else cur = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -360,47 +391,105 @@ void ProcessSignals()
 }
 void CloseOppositePositions(string action)
 {
+   if(Enable_Logging) Print("🔒 Checking for opposite positions to close before ", action, " entry");
+   
    string opp=(action=="Buy"?"Sell":"Buy");
    bool any=false;
-   for(int i=PositionsTotal()-1;i>=0;i--){
+   int posCount = PositionsTotal();
+   
+   if(Enable_Logging) Print("Found ", posCount, " total positions");
+   
+   for(int i=posCount-1;i>=0;i--){
       ulong tk=PositionGetTicket(i); if(tk<=0) continue;
       if(!PositionSelectByTicket(tk)) continue;
       if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
       if((int)PositionGetInteger(POSITION_MAGIC)!=Magic_Number) continue;
+      
       ENUM_POSITION_TYPE t=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      if( (t==POSITION_TYPE_BUY && opp=="Buy") || (t==POSITION_TYPE_SELL && opp=="Sell") ){
-         if(g_trade.PositionClose(tk)){ any=true; if(Enable_Logging) Print("Closed opposite #",tk," (",PosTypeToStr(t),")"); }
-         else Print("Error close opposite #",tk,": ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
+      string posType = PosTypeToStr(t);
+      
+      if(Enable_Logging) Print("Position #", tk, ": type=", posType, ", action=", action, ", opposite=", opp);
+      
+      bool shouldClose = false;
+      if(t==POSITION_TYPE_BUY && opp=="Buy") shouldClose = true;
+      if(t==POSITION_TYPE_SELL && opp=="Sell") shouldClose = true;
+      
+      if(shouldClose){
+         if(Enable_Logging) Print("🔴 CLOSING opposite position #", tk, " (", posType, ") before ", action, " entry");
+         if(g_trade.PositionClose(tk)){
+            any=true;
+            if(Enable_Logging) Print("✅ Successfully closed opposite #",tk);
+         } else {
+            Print("❌ Error closing opposite #",tk,": ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
+         }
       }
    }
-   if(Enable_Logging && !any) Print("No opposite positions to close.");
+   
+   if(Enable_Logging && !any) Print("✅ No opposite positions found, safe to open new ", action, " trade");
 }
 void ExecuteTrade()
 {
+   if(Enable_Logging) Print("
+💰 EXECUTING TRADE based on signals");
+   
    g_partialClosed=false;
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
    double sl=0, tp=0; ENUM_ORDER_TYPE type;
    string act = NormalizeAction(g_entrySignal.action);
-   if(act=="Buy"){ type=ORDER_TYPE_BUY; sl=ask-PipsToPrice(SL_Pips); tp=ask+PipsToPrice(TP_Pips); }
-   else{ type=ORDER_TYPE_SELL; sl=bid+PipsToPrice(SL_Pips); tp=bid-PipsToPrice(TP_Pips); }
-   if(Enable_Logging) Print("Open ",(type==ORDER_TYPE_BUY?"BUY":"SELL")," lot=",DoubleToString(Lot_Size,2),
-                            " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
-                            " devPts=", (int)MathMax(1, MathRound(Max_Slippage * PipInPoints())));
+   
+   if(act=="Buy"){
+      type=ORDER_TYPE_BUY; 
+      sl=ask-PipsToPrice(SL_Pips); 
+      tp=ask+PipsToPrice(TP_Pips);
+      if(Enable_Logging) Print("🔵 Preparing BUY order @ ", DoubleToString(ask, _Digits));
+   }
+   else{
+      type=ORDER_TYPE_SELL; 
+      sl=bid+PipsToPrice(SL_Pips); 
+      tp=bid-PipsToPrice(TP_Pips);
+      if(Enable_Logging) Print("🔴 Preparing SELL order @ ", DoubleToString(bid, _Digits));
+   }
+   
+   if(Enable_Logging) {
+      Print("Parameters: lot=",DoubleToString(Lot_Size,2),
+           " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
+           " slippage=", (int)MathMax(1, MathRound(Max_Slippage * PipInPoints())), " points");
+   }
+   
    bool ok=g_trade.PositionOpen(_Symbol,type,Lot_Size,0,sl,tp);
    if(ok){
-      // chống trùng + PUT mark used
+      // Đánh dấu Id đã xử lý và gọi PUT API
       g_lastProcessedEntryId = g_entrySignal.id;
       g_entrySignal.used = true;
       UpdateLabelsText();
+      
+      if(Enable_Logging) Print("✅ ORDER OPENED SUCCESSFULLY! Ticket=", g_trade.ResultOrder(), ", Price=", g_trade.ResultPrice());
+      if(Enable_Logging) Print("Marking entry signal id=", g_lastProcessedEntryId, " as USED via PUT API");
+      
       bool mark_ok = MarkEntryAsUsedTry(g_lastProcessedEntryId, true);
-      if(!mark_ok) mark_ok = MarkEntryAsUsedTry(g_lastProcessedEntryId, false);
-      if(!mark_ok){
-         g_markPending=true; g_markPendingId=g_lastProcessedEntryId; g_markLastAttempt=TimeCurrent();
-         if(Enable_Logging) Print("Mark used failed, will retry. id=",g_markPendingId);
+      if(!mark_ok) {
+         if(Enable_Logging) Print("Retrying PUT with empty body...");
+         mark_ok = MarkEntryAsUsedTry(g_lastProcessedEntryId, false);
       }
-      if(Enable_Logging) Print("Opened ",act," OK. entry id=",g_entrySignal.id," trend id=",g_trendSignal.id);
-   }else{
-      Print("OPEN ERROR: lastErr=",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
+      
+      if(!mark_ok){
+         g_markPending=true; 
+         g_markPendingId=g_lastProcessedEntryId; 
+         g_markLastAttempt=TimeCurrent();
+         if(Enable_Logging) Print("⚠️ Mark used API failed, will retry later. id=",g_markPendingId);
+      }
+      
+      if(Enable_Logging) {
+         Print("📊 TRADE SUMMARY:");
+         Print("- Action: ", act);
+         Print("- Entry Signal: id=", g_entrySignal.id, ", price=", g_entrySignal.price);
+         Print("- Trend Signal: id=", g_trendSignal.id, ", action=", g_trendSignal.action);
+         Print("- Entry Price: ", g_trade.ResultPrice());
+         Print("- Stop Loss: ", sl);
+         Print("- Take Profit: ", tp);
+      }
+   } else {
+      Print("❌ OPEN ORDER FAILED: lastErr=",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
    }
 }
 // Trả true nếu PUT thành công (200/204)
