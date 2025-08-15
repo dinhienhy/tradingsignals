@@ -1,553 +1,440 @@
 //+------------------------------------------------------------------+
-//|                                             FollowTrendBot.mq5 |
-//|              MT5 EA that trades based on trend and entry signals |
+//| FollowTrendBot.mq5                                               |
+//| MT5 EA — Trend+Entry via API, PUT mark-used, reversals, v1.05    |
+//| - Robust JSON parser, no-ref trim, PUT retry, normalize action   |
 //+------------------------------------------------------------------+
 #property copyright "FollowTrendBot"
-#property version   "1.00"
+#property version "1.05"
 #property strict
-
-// Include necessary libraries
-#include <Trade/Trade.mqh>        // For trade operations
-#include <Arrays/ArrayObj.mqh>    // For dynamic arrays
-
-// Input parameters
-input string   API_Key = "your_api_key_here";               // API Key for authentication
-input string   API_Endpoint_Trend = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/trend";  // URL for trend signals
-input string   API_Endpoint_Entry = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/entry";  // URL for entry signals
-input string   PUT_Endpoint_Base = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/ActiveSignals/markused/";  // Base URL for PUT updates
-input double   SL_Pips = 50.0;             // Stop Loss in pips
-input double   TP_Pips = 100.0;            // Take Profit in pips
-input double   Y_Pips_Breakeven = 50.0;    // Pips needed for partial close + breakeven
-input double   Lot_Size = 0.01;            // Trading lot size
-input int      Magic_Number = 12345;       // Magic number for orders
-input int      Max_Slippage = 3;           // Maximum allowed slippage in pips
-input bool     Enable_Logging = true;      // Enable detailed logging
-
-// Signal structure
+#include <Trade/Trade.mqh>
+#include <Arrays/ArrayObj.mqh>
+//================== Inputs ==================
+input string API_Key = "your_api_key_here";
+input string API_Endpoint_Trend = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/trend";
+input string API_Endpoint_Entry = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/entry";
+input string PUT_Endpoint_Base = "https://tradingsignals-ae14b4a15912.herokuapp.com/api/ActiveSignals/markused/";
+input double SL_Pips = 50.0;
+input double TP_Pips = 100.0;
+input double Y_Pips_Breakeven = 50.0;
+input double MaxEntryPriceDiffPips = 25.0; // Max lệch so với signal price
+input int Max_Slippage = 3; // In pips (đổi sang points)
+input double Lot_Size = 0.01;
+input int Magic_Number = 12345;
+input bool Enable_Logging = true;
+//================== Data ====================
 struct SignalInfo {
-   int      id;           // Signal ID
-   string   action;       // "Buy" or "Sell"
-   double   price;        // Signal price
-   bool     used;         // If signal has been used
-   datetime timestamp;    // When signal was received
+   int id;
+   string action; // "Buy" | "Sell"
+   double price; // có thể 0 nếu API không set
+   bool used;
+   datetime timestamp;
 };
-
-// Global variables
-CTrade         g_trade;            // Trade object
-SignalInfo     g_trendSignal;      // Current trend signal
-SignalInfo     g_entrySignal;      // Current entry signal
-int            g_lastTrendId = 0;  // Last processed trend ID
-int            g_lastEntryId = 0;  // Last processed entry ID
-int            g_apiErrors = 0;    // Counter for API errors
-bool           g_partialClosed = false; // Flag for partial close
-datetime       g_lastTrendCheck = 0;    // Last time trend was checked
-datetime       g_lastEntryCheck = 0;    // Last time entry was checked
-
-// UI labels
-string         LABEL_TREND = "FTB_TrendLabel";
-string         LABEL_ENTRY = "FTB_EntryLabel";
-
+CTrade g_trade;
+SignalInfo g_trendSignal, g_entrySignal;
+int g_apiErrors=0;
+bool g_partialClosed=false;
+datetime g_lastTrendCheck=0, g_lastEntryCheck=0;
+// Chống mở trùng theo entry.id
+int g_lastProcessedEntryId=0;
+// Retry PUT
+bool g_markPending=false;
+int g_markPendingId=0;
+datetime g_markLastAttempt=0;
+// UI
+string LABEL_TREND="FTB_TrendLabel";
+string LABEL_ENTRY="FTB_EntryLabel";
+//================== Utils ===================
+double PipInPoints(){ if(_Digits==5 || _Digits==3) return 10.0; return 1.0; }
+double PipsToPrice(double p){ return p * PipInPoints() * SymbolInfoDouble(_Symbol,SYMBOL_POINT); }
+double PriceDiffInPips(double a,double b){ return MathAbs(a-b)/(SymbolInfoDouble(_Symbol,SYMBOL_POINT)*PipInPoints()); }
+string PosTypeToStr(ENUM_POSITION_TYPE t){
+   if(t==POSITION_TYPE_BUY) return "Buy";
+   if(t==POSITION_TYPE_SELL) return "Sell";
+   return "Other";
+}
+// --- Trim không tham chiếu (fix compile) ---
+bool __is_sp(ushort c){ return (c==' ' || c=='\t' || c=='\r' || c=='\n'); }
+string TrimAll(const string &s)
+{
+   int n=StringLen(s); if(n==0) return s;
+   int i=0; while(i<n && __is_sp(StringGetCharacter(s,i))) i++;
+   int j=n-1; while(j>=i && __is_sp(StringGetCharacter(s,j))) j--;
+   if(j<i) return "";
+   return StringSubstr(s,i,j-i+1);
+}
+string NormalizeAction(const string &sin)
+{
+   string s = TrimAll(sin);
+   string up = s;
+   StringToUpper(up);
+   if(up=="BUY" || up=="LONG") return "Buy";
+   if(up=="SELL"|| up=="SHORT") return "Sell";
+   return ""; // unknown
+}
+// --- Robust JSON helpers (case-insensitive, tolerant) ---
+int FindKeyCaseInsensitive(const string &jsonUp, const string &keyUp, int start=0)
+{
+   string pat="\""+keyUp+"\"";
+   return StringFind(jsonUp, pat, start);
+}
+bool ExtractJsonStringValue(const string &json, const string &key, string &out)
+{
+   string jsonUp = json;
+   StringToUpper(jsonUp);
+   string keyUp = key;
+   StringToUpper(keyUp);
+   int pos = FindKeyCaseInsensitive(jsonUp, keyUp, 0);
+   if(pos<0) return false;
+   int colon = StringFind(json, ":", pos);
+   if(colon<0) return false;
+   // skip spaces
+   int i = colon+1;
+   while(i<StringLen(json))
+   {
+      ushort c=StringGetCharacter(json,i);
+      if(!(c==' '||c=='\t'||c=='\r'||c=='\n')) break;
+      i++;
+   }
+   if(i>=StringLen(json) || StringGetCharacter(json,i)!='"') return false;
+   int q1=i;
+   int q2=StringFind(json, "\"", q1+1);
+   if(q2<0) return false;
+   out = StringSubstr(json, q1+1, q2-(q1+1));
+   return true;
+}
+bool ExtractJsonNumberValue(const string &json, const string &key, double &out)
+{
+   string jsonUp = json;
+   StringToUpper(jsonUp);
+   string keyUp = key;
+   StringToUpper(keyUp);
+   int pos = FindKeyCaseInsensitive(jsonUp, keyUp, 0);
+   if(pos<0) return false;
+   int colon = StringFind(json, ":", pos);
+   if(colon<0) return false;
+   int i=colon+1;
+   while(i<StringLen(json))
+   {
+      ushort c=StringGetCharacter(json,i);
+      if(!(c==' '||c=='\t'||c=='\r'||c=='\n')) break;
+      i++;
+   }
+   string s="";
+   for(; i<StringLen(json); i++)
+   {
+      ushort c=StringGetCharacter(json,i);
+      if((c>='0' && c<='9') || c=='.' || c=='-' || c=='+') s+=ShortToString(c);
+      else break;
+   }
+   if(s=="") return false;
+   out = StringToDouble(s);
+   return true;
+}
+bool ExtractJsonBoolValue(const string &json, const string &key, bool &out)
+{
+   string jsonUp = json;
+   StringToUpper(jsonUp);
+   string keyUp = key;
+   StringToUpper(keyUp);
+   int pos = FindKeyCaseInsensitive(jsonUp, keyUp, 0);
+   if(pos<0) return false;
+   int colon = StringFind(json, ":", pos);
+   if(colon<0) return false;
+   int i=colon+1;
+   while(i<StringLen(json))
+   {
+      ushort c=StringGetCharacter(json,i);
+      if(!(c==' '||c=='\t'||c=='\r'||c=='\n')) break;
+      i++;
+   }
+   string temp4 = StringSubstr(json, i, 4);
+   StringToUpper(temp4);
+   string t4 = temp4;
+   string temp5 = StringSubstr(json, i, 5);
+   StringToUpper(temp5);
+   string t5 = temp5;
+   if(t4=="TRUE") { out=true; return true; }
+   if(t5=="FALSE") { out=false; return true; }
+   return false;
+}
+// Cắt object đầu tiên nếu response là mảng: [ { ... } , ... ]
+string FirstObjectFromArray(const string &json)
+{
+   int lbrace = StringFind(json, "{");
+   int rbrace = StringFind(json, "}", lbrace);
+   if(lbrace>=0 && rbrace>lbrace)
+      return StringSubstr(json, lbrace, rbrace-lbrace+1);
+   return json; // fallback
+}
 // Forward declarations
-void CreateOrUpdateLabels();
-void UpdateLabelsText();
-
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
-//+------------------------------------------------------------------+
-int OnInit() {
-   // Initialize trade object
+void CreateOrUpdateLabels(); void UpdateLabelsText();
+void GetTrendSignal(); void GetEntrySignal(); void ParseSignalJSON(string json, SignalInfo &signal);
+void ProcessSignals(); void CloseOppositePositions(string action);
+void ExecuteTrade(); bool MarkEntryAsUsedTry(int id, bool with_body);
+void ManageOpenPositions(); void CheckForReversals();
+//================= Lifecycle =================
+int OnInit()
+{
    g_trade.SetExpertMagicNumber(Magic_Number);
    g_trade.SetMarginMode();
    g_trade.SetTypeFillingBySymbol(_Symbol);
-   g_trade.SetDeviationInPoints(Max_Slippage);
-   
-   // Initialize signals
-   g_trendSignal.id = 0;
-   g_trendSignal.action = "";
-   g_trendSignal.price = 0;
-   g_trendSignal.used = true;
-   g_trendSignal.timestamp = 0;
-   
-   g_entrySignal.id = 0;
-   g_entrySignal.action = "";
-   g_entrySignal.price = 0;
-   g_entrySignal.used = true;
-   g_entrySignal.timestamp = 0;
-   
-   // Set timer for API checks (every 10 seconds for more responsive updates)
+   g_trade.SetDeviationInPoints( (int)MathMax(1, MathRound(Max_Slippage * PipInPoints())) );
+   g_trendSignal.id=0; g_trendSignal.action=""; g_trendSignal.price=0; g_trendSignal.used=true; g_trendSignal.timestamp=0;
+   g_entrySignal.id=0; g_entrySignal.action=""; g_entrySignal.price=0; g_entrySignal.used=true; g_entrySignal.timestamp=0;
    EventSetTimer(10);
-   
-   // Create UI labels and show initial values
-   CreateOrUpdateLabels();
-   UpdateLabelsText();
-
-   // Fetch signals immediately on attach to populate labels
-   if(Enable_Logging) Print("Initial fetch on attach: TREND & ENTRY");
-   GetTrendSignal();
-   GetEntrySignal();
-   UpdateLabelsText();
-   // Optionally attempt processing immediately
-   ProcessSignals();
-
-   // Log initialization
-   if(Enable_Logging) {
-      Print("FollowTrendBot initialized");
-      Print("Symbol: ", _Symbol, ", Timeframe: ", EnumToString(Period()));
-      Print("Trend API: ", API_Endpoint_Trend);
-      Print("Entry API: ", API_Endpoint_Entry);
+   CreateOrUpdateLabels(); UpdateLabelsText();
+   if(Enable_Logging){
+      Print("FollowTrendBot v1.05 on ",_Symbol," TF ",EnumToString(Period()),
+            " | Digits=",_Digits," | PipInPoints=",DoubleToString(PipInPoints(),1),
+            " | DeviationPoints=", (int)MathMax(1, MathRound(Max_Slippage * PipInPoints())));
+      Print("Trend API: ",API_Endpoint_Trend," | Entry API: ",API_Endpoint_Entry);
    }
-   
+   GetTrendSignal(); GetEntrySignal(); UpdateLabelsText(); ProcessSignals();
    return(INIT_SUCCEEDED);
 }
-
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason) {
-   // Remove timer
+void OnDeinit(const int reason)
+{
    EventKillTimer();
-   
-   // Remove labels
-   ObjectDelete(0, LABEL_TREND);
-   ObjectDelete(0, LABEL_ENTRY);
-   
-   if(Enable_Logging)
-      Print("FollowTrendBot stopped, reason: ", reason);
+   ObjectDelete(0,LABEL_TREND); ObjectDelete(0,LABEL_ENTRY);
+   if(Enable_Logging) Print("Stopped: ",reason);
 }
-
-//+------------------------------------------------------------------+
-//| Timer function for periodic API checks                           |
-//+------------------------------------------------------------------+
-void OnTimer() {
-   // Get current time
-   MqlDateTime dt;
-   TimeCurrent(dt);
-   datetime currentTime = TimeCurrent();
-   
-   if(Enable_Logging) {
-      Print("\n----- OnTimer fired at ", TimeToString(currentTime), ", min=", dt.min, ", sec=", dt.sec, 
-            " -----");
-      Print("Last trend check: ", TimeToString(g_lastTrendCheck), 
-            ", Last entry check: ", TimeToString(g_lastEntryCheck));
+void OnTimer()
+{
+   datetime now=TimeCurrent(); MqlDateTime dt; TimeToStruct(now,dt);
+   // Trend: phút 00/30 hoặc >30'
+   if(g_lastTrendCheck==0 || dt.min==0 || dt.min==30 || (now-g_lastTrendCheck)>1800){
+      if(now-g_lastTrendCheck>=30){ g_lastTrendCheck=now; if(Enable_Logging) Print("Check TREND @",TimeToString(now)); GetTrendSignal(); }
    }
-   
-   // Check trend signal at minutes 0 and 30 of each hour or if never checked
-   bool shouldCheckTrend = g_lastTrendCheck == 0 || // never checked
-                          (dt.min == 0 || dt.min == 30) || // on scheduled minute
-                          (currentTime - g_lastTrendCheck) > 60*30; // or if >30min passed
-   
-   if(shouldCheckTrend) {
-      if(currentTime - g_lastTrendCheck >= 30) { // Prevent checks too often (30s cooldown)
-         g_lastTrendCheck = currentTime;
-         if(Enable_Logging)
-            Print("Checking trend signal at ", TimeToString(currentTime));
-         GetTrendSignal();
-      }
-      else if(Enable_Logging) {
-         Print("Trend check cooldown active, last check=", TimeToString(g_lastTrendCheck));
+   // Entry: mỗi ≥60s
+   if(g_lastEntryCheck==0 || (now-g_lastEntryCheck)>=60){
+      g_lastEntryCheck=now; if(Enable_Logging) Print("Check ENTRY @",TimeToString(now)); GetEntrySignal(); ProcessSignals();
+   }
+   // Retry PUT nếu còn pending (15s/lần)
+   if(g_markPending && (now - g_markLastAttempt >= 15)){
+      if(Enable_Logging) Print("Retry PUT mark used for entry id=",g_markPendingId);
+      bool ok = MarkEntryAsUsedTry(g_markPendingId, true);
+      if(!ok) ok = MarkEntryAsUsedTry(g_markPendingId, false);
+      if(ok){
+         g_markPending=false;
+         if(Enable_Logging) Print("PUT retry success for id=",g_markPendingId);
+      }else{
+         if(Enable_Logging) Print("PUT retry still failing for id=",g_markPendingId);
       }
    }
-   else if(Enable_Logging) {
-      Print("Not trend check time, next at minute 00 or 30");
-   }
-   
-   // Check entry signal every minute or if never checked
-   bool shouldCheckEntry = g_lastEntryCheck == 0 || // never checked
-                          (currentTime - g_lastEntryCheck) >= 60; // at least 1min passed
-   
-   if(shouldCheckEntry) {
-      g_lastEntryCheck = currentTime;
-      if(Enable_Logging)
-         Print("Checking entry signal at ", TimeToString(currentTime));
-      GetEntrySignal();
-         
-      // Process signals after getting entry
-      ProcessSignals();
-   }
-   else if(Enable_Logging) {
-      Print("Entry check cooldown active, last check=", TimeToString(g_lastEntryCheck));
-   }
-   
-   // Force chart to update UI
    ChartRedraw();
 }
-
-//+------------------------------------------------------------------+
-//| Tick function for monitoring open positions                      |
-//+------------------------------------------------------------------+
-void OnTick() {
-   // Check for partial close opportunity on open positions
+void OnTick()
+{
    ManageOpenPositions();
-   
-   // Handle potential reversal on entry signal
    CheckForReversals();
 }
-
-//+------------------------------------------------------------------+
-//| Get trend signal from API                                        |
-//+------------------------------------------------------------------+
-void GetTrendSignal() {
-   string response = "";
-   uchar result[];
-   uchar data[]; // empty payload for GET
-   string headers = "Authorization: Bearer " + API_Key + "\r\n";
-   
-   // Send API request
-   string response_headers = "";
+//================= API ======================
+void GetTrendSignal()
+{
+   string response="", hdr=""; uchar out[], in[];
+   string heads="X-API-Key: "+API_Key+"\r\n";
+   int res=WebRequest("GET", API_Endpoint_Trend, heads, 5000, in, out, hdr);
+   if(res==200){
+      response=CharArrayToString(out);
+      if(Enable_Logging){
+         string prev;
+         if(StringLen(response)>180) prev = StringSubstr(response,0,180)+"...";
+         else prev = response;
+         Print("TREND 200, len=",StringLen(response),", preview=",prev);
+      }
+      ParseSignalJSON(response,g_trendSignal);
+      UpdateLabelsText();
+      g_apiErrors=0;
+   } else {
+      g_apiErrors++; int le=GetLastError();
+      Print("Trend API failed: status=",res,", lastError=",le);
+      if(le==4066 || le==4016) Print("Allow WebRequest: ",API_Endpoint_Trend);
+      if(g_apiErrors>=3){ Print("Too many API errors -> remove EA"); ExpertRemove(); }
+   }
+}
+void GetEntrySignal()
+{
+   string response="", hdr=""; uchar out[], in[];
+   string heads="X-API-Key: "+API_Key+"\r\n";
+   int res=WebRequest("GET", API_Endpoint_Entry, heads, 5000, in, out, hdr);
+   if(res==200){
+      response=CharArrayToString(out);
+      if(Enable_Logging){
+         string prev;
+         if(StringLen(response)>180) prev = StringSubstr(response,0,180)+"...";
+         else prev = response;
+         Print("ENTRY 200, len=",StringLen(response),", preview=",prev);
+      }
+      ParseSignalJSON(response,g_entrySignal);
+      UpdateLabelsText();
+      g_apiErrors=0;
+      CheckForReversals();
+   } else {
+      g_apiErrors++; int le=GetLastError();
+      Print("Entry API failed: status=",res,", lastError=",le);
+      if(le==4066 || le==4016) Print("Allow WebRequest: ",API_Endpoint_Entry);
+      if(g_apiErrors>=3){ Print("Too many API errors -> remove EA"); ExpertRemove(); }
+   }
+}
+// Parse tolerant (array/object, alias keys, case-insensitive)
+void ParseSignalJSON(string json, SignalInfo &s)
+{
+   string j = TrimAll(json);
+   if(StringLen(j)==0){ if(Enable_Logging) Print("ParseSignalJSON: empty response"); return; }
+   // Nếu là array -> lấy object đầu
+   if(StringGetCharacter(j,0)=='[') j = FirstObjectFromArray(j);
+   // --- ID ---
+   double idNum=0;
+   if( ExtractJsonNumberValue(j,"id",idNum) ||
+       ExtractJsonNumberValue(j,"Id",idNum) ||
+       ExtractJsonNumberValue(j,"ID",idNum) )
+      s.id=(int)idNum;
+   // --- ACTION / DIRECTION ---
+   string act="";
+   if( ExtractJsonStringValue(j,"action",act) ||
+       ExtractJsonStringValue(j,"Action",act) ||
+       ExtractJsonStringValue(j,"direction",act) ||
+       ExtractJsonStringValue(j,"side",act) ||
+       ExtractJsonStringValue(j,"signal",act) )
+      s.action = NormalizeAction(act);
+   // --- PRICE ---
+   double pr=0;
+   if( ExtractJsonNumberValue(j,"price",pr) ||
+       ExtractJsonNumberValue(j,"Price",pr) ||
+       ExtractJsonNumberValue(j,"entryPrice",pr) ||
+       ExtractJsonNumberValue(j,"signal_price",pr) )
+      s.price=pr;
+   // --- USED ---
+   bool usedVal=false;
+   bool haveUsed = ( ExtractJsonBoolValue(j,"used",usedVal) ||
+                     ExtractJsonBoolValue(j,"Used",usedVal) ||
+                     ExtractJsonBoolValue(j,"isUsed",usedVal) );
+   if(haveUsed) s.used = usedVal;
+   s.timestamp=TimeCurrent();
    if(Enable_Logging)
-      Print("Requesting TREND: ", API_Endpoint_Trend);
-   int res = WebRequest("GET", API_Endpoint_Trend, headers, 5000, data, result, response_headers);
-   
-   if(res == 200) { // Success
-      response = CharArrayToString(result);
-      if(Enable_Logging) {
-         string preview = (StringLen(response) > 300 ? StringSubstr(response, 0, 300) + "..." : response);
-         Print("Trend API status=200, resp_len=", StringLen(response), ", headers=", response_headers);
-         Print("Trend API response preview: ", preview);
-      }
-      
-      // Parse JSON response
-      ParseSignalJSON(response, g_trendSignal);
-      if(Enable_Logging)
-         Print("Trend parsed -> id=", g_trendSignal.id, ", action=", g_trendSignal.action, 
-               ", price=", DoubleToString(g_trendSignal.price, _Digits), ", used=", (g_trendSignal.used?"true":"false"));
-      UpdateLabelsText();
-      
-      // Reset error counter on success
-      g_apiErrors = 0;
-   } else {
-      // Handle API error
-      g_apiErrors++;
-      int le = GetLastError();
-      Print("Trend API failed: status=", res, ", lastError=", le, ", headers=", response_headers);
-      if(le == 4066 || le == 4016) {
-         Print("Hint: Allow WebRequest URL in MT5 Options > Expert Advisors: ", API_Endpoint_Trend);
-      }
-      
-      // Stop bot after multiple errors
-      if(g_apiErrors >= 3) {
-         Print("Multiple API errors detected, stopping bot");
-         ExpertRemove();
-      }
-   }
+      Print("Parsed -> id:",s.id," act:",s.action," price:",DoubleToString(s.price,_Digits),
+            " used:",(s.used?"true":"false"));
 }
-
-//+------------------------------------------------------------------+
-//| Get entry signal from API                                        |
-//+------------------------------------------------------------------+
-void GetEntrySignal() {
-   string response = "";
-   uchar result[];
-   uchar data[]; // empty payload for GET
-   string headers = "Authorization: Bearer " + API_Key + "\r\n";
-   
-   // Send API request
-   string response_headers = "";
-    if(Enable_Logging)
-       Print("Requesting ENTRY: ", API_Endpoint_Entry);
-   int res = WebRequest("GET", API_Endpoint_Entry, headers, 5000, data, result, response_headers);
-   
-   if(res == 200) { // Success
-      response = CharArrayToString(result);
-      if(Enable_Logging) {
-         string preview = (StringLen(response) > 300 ? StringSubstr(response, 0, 300) + "..." : response);
-         Print("Entry API status=200, resp_len=", StringLen(response), ", headers=", response_headers);
-         Print("Entry API response preview: ", preview);
-      }
-      
-      // Parse JSON response
-      ParseSignalJSON(response, g_entrySignal);
-      if(Enable_Logging)
-         Print("Entry parsed -> id=", g_entrySignal.id, ", action=", g_entrySignal.action, 
-               ", price=", DoubleToString(g_entrySignal.price, _Digits), ", used=", (g_entrySignal.used?"true":"false"));
-      UpdateLabelsText();
-      
-      // Reset error counter on success
-      g_apiErrors = 0;
-   } else {
-      // Handle API error
-      g_apiErrors++;
-      int le = GetLastError();
-      Print("Entry API failed: status=", res, ", lastError=", le, ", headers=", response_headers);
-      if(le == 4066 || le == 4016) {
-         Print("Hint: Allow WebRequest URL in MT5 Options > Expert Advisors: ", API_Endpoint_Entry);
-      }
-      
-      // Stop bot after multiple errors
-      if(g_apiErrors >= 3) {
-         Print("Multiple API errors detected, stopping bot");
-         ExpertRemove();
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Parse JSON response from API                                     |
-//+------------------------------------------------------------------+
-void ParseSignalJSON(string json, SignalInfo &signal) {
-   // Manual simple JSON parsing for the expected format:
-   // {"id": int, "action": "Buy" or "Sell", "price": double, "used": bool}
-   
-   // Extract id
-   int idPos = StringFind(json, "\"id\":");
-   if(idPos >= 0) {
-      int idStartPos = idPos + 5; // Skip "id":
-      while(StringGetCharacter(json, idStartPos) == ' ') idStartPos++; // Skip spaces
-      
-      string idStr = "";
-      for(int i = idStartPos; i < StringLen(json); i++) {
-         ushort c = StringGetCharacter(json, i);
-         if(c >= '0' && c <= '9')
-            idStr += ShortToString(c);
-         else
-            break;
-      }
-      
-      if(idStr != "")
-         signal.id = (int)StringToInteger(idStr);
-   }
-   
-   // Extract action
-   int actionPos = StringFind(json, "\"action\":");
-   if(actionPos >= 0) {
-      int actionStartPos = StringFind(json, "\"", actionPos + 9) + 1;
-      int actionEndPos = StringFind(json, "\"", actionStartPos);
-      if(actionStartPos > 0 && actionEndPos > actionStartPos)
-         signal.action = StringSubstr(json, actionStartPos, actionEndPos - actionStartPos);
-   }
-   
-   // Extract price
-   int pricePos = StringFind(json, "\"price\":");
-   if(pricePos >= 0) {
-      int priceStartPos = pricePos + 8; // Skip "price":
-      while(StringGetCharacter(json, priceStartPos) == ' ') priceStartPos++; // Skip spaces
-      
-      string priceStr = "";
-      for(int i = priceStartPos; i < StringLen(json); i++) {
-         ushort c = StringGetCharacter(json, i);
-         if((c >= '0' && c <= '9') || c == '.')
-            priceStr += ShortToString(c);
-         else
-            break;
-      }
-      
-      if(priceStr != "")
-         signal.price = StringToDouble(priceStr);
-   }
-   
-   // Extract used
-   int usedPos = StringFind(json, "\"used\":");
-   if(usedPos >= 0) {
-      int usedStartPos = usedPos + 7; // Skip "used":
-      while(StringGetCharacter(json, usedStartPos) == ' ') usedStartPos++; // Skip spaces
-      
-      string usedStr = "";
-      for(int i = usedStartPos; i < StringLen(json); i++) {
-         ushort c = StringGetCharacter(json, i);
-         // Look for true or false
-         if(c == 't' || c == 'f') {
-            usedStr = StringSubstr(json, i, 4); // "true"
-            if(StringCompare(usedStr, "true") == 0) {
-               signal.used = true;
-               break;
-            }
-            
-            usedStr = StringSubstr(json, i, 5); // "false"
-            if(StringCompare(usedStr, "false") == 0) {
-               signal.used = false;
-               break;
-            }
-         }
-      }
-   }
-   
-   // Update timestamp
-   signal.timestamp = TimeCurrent();
-   
-   // Log parsed signal
-   if(Enable_Logging) {
-      Print("Parsed signal - ID: ", signal.id, 
-            ", Action: ", signal.action, 
-            ", Price: ", signal.price, 
-            ", Used: ", signal.used);
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Process trend and entry signals                                  |
-//+------------------------------------------------------------------+
-void ProcessSignals() {
-   // Only process if we have both signals and neither is used
-   if(g_trendSignal.action == "" || g_entrySignal.action == "") {
-      if(Enable_Logging) {
-         Print("Skipping trade: missing signal(s). trend_action=", g_trendSignal.action, 
-               ", entry_action=", g_entrySignal.action);
-      }
+//================= CORE =====================
+void ProcessSignals()
+{
+   // đủ hướng?
+   if(g_trendSignal.action=="" || g_entrySignal.action==""){
+      if(Enable_Logging) Print("Skip: missing action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
       return;
    }
-   
-   if(g_trendSignal.used || g_entrySignal.used) {
-      if(Enable_Logging)
-         Print("Skipping trade: used flags. trend_used=", (g_trendSignal.used?"true":"false"), 
-               ", entry_used=", (g_entrySignal.used?"true":"false"));
+   // normalize lần nữa cho chắc
+   string trendAct = NormalizeAction(g_trendSignal.action);
+   string entryAct = NormalizeAction(g_entrySignal.action);
+   if(trendAct=="" || entryAct==""){
+      if(Enable_Logging) Print("Skip: unknown action(s). trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
       return;
    }
-   
-   // Check if signals match
-   if(g_trendSignal.action == g_entrySignal.action) {
-      // We have matching, unused signals - validate price
-      double currentPrice = 0;
-      if(g_entrySignal.action == "Buy")
-         currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      else if(g_entrySignal.action == "Sell")
-         currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      
-      // Calculate price difference in pips
-      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-      double pips_per_point = 10; // For 5-digit brokers; use 1 for 4-digit
-      double priceDiffInPips = MathAbs(currentPrice - g_entrySignal.price) / (point * pips_per_point);
-      if(Enable_Logging)
-         Print("Validation: current=", DoubleToString(currentPrice, _Digits), 
-               ", signal=", DoubleToString(g_entrySignal.price, _Digits), 
-               ", diff_pips=", DoubleToString(priceDiffInPips, 1));
-      
-      // Validate entry price not too far from current price
-      if(priceDiffInPips <= 10) { // Max 10 pips difference
-         // Check for existing positions in the opposite direction
-         if(Enable_Logging)
-            Print("Signals aligned (", g_entrySignal.action, ") and within threshold. Checking opposite positions...");
-         CloseOppositePositions(g_entrySignal.action);
-         
-         // Execute trade
-         ExecuteTrade();
-         
-         // Mark entry as used
-         MarkEntryAsUsed();
-      } else {
-         if(Enable_Logging)
-            Print("Price difference too large: ", priceDiffInPips, " pips. Signal price: ", 
-                  g_entrySignal.price, ", Current price: ", currentPrice);
-      }
-   } else {
-      if(Enable_Logging)
-         Print("Skipping trade: signals mismatch. trend=", g_trendSignal.action, 
-               ", entry=", g_entrySignal.action);
+   // khớp hướng
+   if(trendAct != entryAct){
+      if(Enable_Logging) Print("Skip: mismatch. trend=",g_trendSignal.action,", entry=",g_entrySignal.action);
+      return;
    }
+   // chống trùng theo id
+   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId){
+      if(Enable_Logging) Print("Skip: entry id ",g_entrySignal.id," already processed");
+      return;
+   }
+   // nếu server đã used=true thì bỏ qua (an toàn)
+   if(g_entrySignal.used){
+      if(Enable_Logging) Print("Skip: entry.used=true (id=",g_entrySignal.id,")");
+      return;
+   }
+   double cur;
+   if(entryAct == "Buy") cur = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   else cur = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool price_ok=true;
+   if(g_entrySignal.price>0){
+      double diff=PriceDiffInPips(cur, g_entrySignal.price);
+      if(Enable_Logging) Print("Price chk diff=",DoubleToString(diff,1)," pips / limit=",MaxEntryPriceDiffPips);
+      if(diff>MaxEntryPriceDiffPips) price_ok=false;
+   }else if(Enable_Logging) Print("Signal price==0 → skip distance check");
+   if(!price_ok){ if(Enable_Logging) Print("Skip: price too far"); return; }
+   CloseOppositePositions(entryAct);
+   ExecuteTrade();
 }
-
-//+------------------------------------------------------------------+
-//| Close any positions in the opposite direction                    |
-//+------------------------------------------------------------------+
-void CloseOppositePositions(string action) {
-   string oppositeAction = (action == "Buy") ? "Sell" : "Buy";
-   
-   // Check if we have any positions in the opposite direction
-   bool anyClosed = false;
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      ulong posTicket = PositionGetTicket(i);
-      if(posTicket <= 0) continue;
-      
-      // Only look at positions for our symbol and magic number
-      if(!PositionSelectByTicket(posTicket)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != Magic_Number) continue;
-      
-      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      
-      // Check if this is an opposite position
-      if((posType == POSITION_TYPE_BUY && oppositeAction == "Buy") ||
-         (posType == POSITION_TYPE_SELL && oppositeAction == "Sell")) {
-         
-         // Close the position
-         g_trade.PositionClose(posTicket);
-         if(Enable_Logging)
-            Print("Closed opposite position #", posTicket);
-         anyClosed = true;
+void CloseOppositePositions(string action)
+{
+   string opp=(action=="Buy"?"Sell":"Buy");
+   bool any=false;
+   for(int i=PositionsTotal()-1;i>=0;i--){
+      ulong tk=PositionGetTicket(i); if(tk<=0) continue;
+      if(!PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC)!=Magic_Number) continue;
+      ENUM_POSITION_TYPE t=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      if( (t==POSITION_TYPE_BUY && opp=="Buy") || (t==POSITION_TYPE_SELL && opp=="Sell") ){
+         if(g_trade.PositionClose(tk)){ any=true; if(Enable_Logging) Print("Closed opposite #",tk," (",PosTypeToStr(t),")"); }
+         else Print("Error close opposite #",tk,": ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
       }
    }
-   if(Enable_Logging && !anyClosed)
-      Print("No opposite positions to close.");
+   if(Enable_Logging && !any) Print("No opposite positions to close.");
 }
-
-//+------------------------------------------------------------------+
-//| Execute trade based on signals                                   |
-//+------------------------------------------------------------------+
-void ExecuteTrade() {
-   // Reset partial close flag
-   g_partialClosed = false;
-   
-   // Get current prices
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   
-   // Calculate SL/TP levels
-   double sl = 0, tp = 0;
-   ENUM_ORDER_TYPE orderType;
-   
-   if(g_entrySignal.action == "Buy") {
-      orderType = ORDER_TYPE_BUY;
-      sl = ask - SL_Pips * 10 * point;
-      tp = ask + TP_Pips * 10 * point;
-   } else { // "Sell"
-      orderType = ORDER_TYPE_SELL;
-      sl = bid + SL_Pips * 10 * point;
-      tp = bid - TP_Pips * 10 * point;
-   }
-   if(Enable_Logging)
-      Print("ExecuteTrade: type=", (orderType==ORDER_TYPE_BUY?"BUY":"SELL"), 
-            ", lot=", DoubleToString(Lot_Size, 2), ", sl=", DoubleToString(sl, _Digits), 
-            ", tp=", DoubleToString(tp, _Digits));
-   
-   // Open position
-   bool success = g_trade.PositionOpen(_Symbol, orderType, Lot_Size, 0, sl, tp, "FollowTrendBot");
-   
-   if(success) {
-      if(Enable_Logging)
-         Print("Opened ", g_entrySignal.action, " order at ", (orderType == ORDER_TYPE_BUY ? ask : bid),
-               " with SL ", sl, " TP ", tp, 
-               ", using entry signal id ", g_entrySignal.id, 
-               " and trend id ", g_trendSignal.id);
-   } else {
-      Print("ERROR opening ", g_entrySignal.action, " order: lastError=", GetLastError(), 
-            ", retcode=", g_trade.ResultRetcode(), 
-            ", desc=", g_trade.ResultRetcodeDescription());
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Mark entry signal as used via PUT request                        |
-//+------------------------------------------------------------------+
-void MarkEntryAsUsed() {
-   uchar result[];
-   uchar data[]; // empty body for PUT per current API contract
-   string headers = "Authorization: Bearer " + API_Key + "\r\nContent-Type: application/json\r\n";
-   string url = PUT_Endpoint_Base + IntegerToString(g_entrySignal.id);
-   
-   // Send PUT request
-   string response_headers = "";
-   int res = WebRequest("PUT", url, headers, 5000, data, result, response_headers);
-   
-   if(res == 200) {
-      if(Enable_Logging) {
-         Print("Marked entry signal ", g_entrySignal.id, " as used");
-      }
-       
-      // Update local signal state
+void ExecuteTrade()
+{
+   g_partialClosed=false;
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double sl=0, tp=0; ENUM_ORDER_TYPE type;
+   string act = NormalizeAction(g_entrySignal.action);
+   if(act=="Buy"){ type=ORDER_TYPE_BUY; sl=ask-PipsToPrice(SL_Pips); tp=ask+PipsToPrice(TP_Pips); }
+   else{ type=ORDER_TYPE_SELL; sl=bid+PipsToPrice(SL_Pips); tp=bid-PipsToPrice(TP_Pips); }
+   if(Enable_Logging) Print("Open ",(type==ORDER_TYPE_BUY?"BUY":"SELL")," lot=",DoubleToString(Lot_Size,2),
+                            " SL=",DoubleToString(sl,_Digits)," TP=",DoubleToString(tp,_Digits),
+                            " devPts=", (int)MathMax(1, MathRound(Max_Slippage * PipInPoints())));
+   bool ok=g_trade.PositionOpen(_Symbol,type,Lot_Size,0,sl,tp);
+   if(ok){
+      // chống trùng + PUT mark used
+      g_lastProcessedEntryId = g_entrySignal.id;
       g_entrySignal.used = true;
       UpdateLabelsText();
-   } else {
-      Print("Failed to mark entry as used: status=", res, 
-            ", lastError=", GetLastError(), ", headers=", response_headers);
+      bool mark_ok = MarkEntryAsUsedTry(g_lastProcessedEntryId, true);
+      if(!mark_ok) mark_ok = MarkEntryAsUsedTry(g_lastProcessedEntryId, false);
+      if(!mark_ok){
+         g_markPending=true; g_markPendingId=g_lastProcessedEntryId; g_markLastAttempt=TimeCurrent();
+         if(Enable_Logging) Print("Mark used failed, will retry. id=",g_markPendingId);
+      }
+      if(Enable_Logging) Print("Opened ",act," OK. entry id=",g_entrySignal.id," trend id=",g_trendSignal.id);
+   }else{
+      Print("OPEN ERROR: lastErr=",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
    }
 }
-
-//+------------------------------------------------------------------+
-//| Create or update the on-chart labels for Trend and Entry         |
-//+------------------------------------------------------------------+
-void CreateOrUpdateLabels() {
-   // Trend label
-   if(ObjectFind(0, LABEL_TREND) == -1) {
+// Trả true nếu PUT thành công (200/204)
+bool MarkEntryAsUsedTry(int id, bool with_body)
+{
+   string response_headers = "";
+   string headers = "X-API-Key: " + API_Key + "\r\nContent-Type: application/json\r\n";
+   string url = PUT_Endpoint_Base + IntegerToString(id);
+   uchar data[];
+   if(with_body)
+   {
+      string body = "{\"used\":true}";
+      int n = StringToCharArray(body, data, 0, -1, CP_UTF8);
+      if(n > 0) ArrayResize(data, n - 1);
+   }
+   else
+   {
+      ArrayResize(data, 0);
+   }
+   uchar result[];
+   g_markLastAttempt = TimeCurrent();
+   int res = WebRequest("PUT", url, headers, 5000, data, result, response_headers);
+   if(res == 200 || res == 204)
+   {
+      if(Enable_Logging) Print("PUT mark used OK (", res, ") for id=", id, " body=", (with_body ? "yes" : "no"));
+      return true;
+   }
+   if(Enable_Logging) Print("PUT mark used FAIL status=", res, " for id=", id, " body=", (with_body ? "yes" : "no"));
+   return false;
+}
+//================= UI =======================
+void CreateOrUpdateLabels()
+{
+   if(ObjectFind(0,LABEL_TREND)==-1){
       ObjectCreate(0, LABEL_TREND, OBJ_LABEL, 0, 0, 0);
       ObjectSetInteger(0, LABEL_TREND, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, LABEL_TREND, OBJPROP_XDISTANCE, 10);
@@ -557,8 +444,7 @@ void CreateOrUpdateLabels() {
       ObjectSetString(0, LABEL_TREND, OBJPROP_FONT, "Arial");
       ObjectSetInteger(0, LABEL_TREND, OBJPROP_FONTSIZE, 10);
    }
-   // Entry label
-   if(ObjectFind(0, LABEL_ENTRY) == -1) {
+   if(ObjectFind(0,LABEL_ENTRY)==-1){
       ObjectCreate(0, LABEL_ENTRY, OBJ_LABEL, 0, 0, 0);
       ObjectSetInteger(0, LABEL_ENTRY, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, LABEL_ENTRY, OBJPROP_XDISTANCE, 10);
@@ -569,156 +455,133 @@ void CreateOrUpdateLabels() {
       ObjectSetInteger(0, LABEL_ENTRY, OBJPROP_FONTSIZE, 10);
    }
 }
-
-//+------------------------------------------------------------------+
-//| Update label texts and colors                                    |
-//+------------------------------------------------------------------+
-void UpdateLabelsText() {
+void UpdateLabelsText()
+{
    CreateOrUpdateLabels();
-   string nowStr = TimeToString(TimeCurrent(), TIME_MINUTES|TIME_SECONDS);
-   // Trend text
-   string trendText = "Trend: ";
-   color  trendColor = clrSilver;
-   if(g_trendSignal.action != "") {
-      trendText += g_trendSignal.action + "  id=" + IntegerToString(g_trendSignal.id) + 
-                   "  price=" + DoubleToString(g_trendSignal.price, _Digits) + 
-                   "  used=" + (g_trendSignal.used?"true":"false") + "  (" + nowStr + ")";
-      trendColor = (g_trendSignal.used ? clrGray : (g_trendSignal.action=="Buy"? clrLime : clrTomato));
-   } else {
-      trendText += "(waiting)  (" + nowStr + ")";
-      trendColor = clrSilver;
+   string nowStr=TimeToString(TimeCurrent(), TIME_MINUTES|TIME_SECONDS);
+   string t="Trend: "; color tc=clrSilver;
+   if(g_trendSignal.action!=""){
+      t += g_trendSignal.action + " id=" + IntegerToString(g_trendSignal.id) +
+           " price=" + DoubleToString(g_trendSignal.price,_Digits) +
+           " used=" + (g_trendSignal.used ? "true" : "false") + " (" + nowStr + ")";
+      if(g_trendSignal.used){
+         tc = clrGray;
+      }else{
+         if(g_trendSignal.action=="Buy"){
+            tc = clrLime;
+         }else{
+            tc = clrTomato;
+         }
+      }
+   }else{
+      t += "(waiting) (" + nowStr + ")";
    }
-   ObjectSetString(0, LABEL_TREND, OBJPROP_TEXT, trendText);
-   ObjectSetInteger(0, LABEL_TREND, OBJPROP_COLOR, trendColor);
-   
-   // Entry text
-   string entryText = "Entry: ";
-   color  entryColor = clrSilver;
-   if(g_entrySignal.action != "") {
-      entryText += g_entrySignal.action + "  id=" + IntegerToString(g_entrySignal.id) + 
-                   "  price=" + DoubleToString(g_entrySignal.price, _Digits) + 
-                   "  used=" + (g_entrySignal.used?"true":"false") + "  (" + nowStr + ")";
-      entryColor = (g_entrySignal.used ? clrGray : (g_entrySignal.action=="Buy"? clrLime : clrTomato));
-   } else {
-      entryText += "(waiting)  (" + nowStr + ")";
-      entryColor = clrSilver;
+   ObjectSetString(0, LABEL_TREND, OBJPROP_TEXT, t);
+   ObjectSetInteger(0, LABEL_TREND, OBJPROP_COLOR, tc);
+   string e="Entry: "; color ec=clrSilver;
+   if(g_entrySignal.action!=""){
+      e += g_entrySignal.action + " id=" + IntegerToString(g_entrySignal.id) +
+           " price=" + DoubleToString(g_entrySignal.price,_Digits) +
+           " used=" + (g_entrySignal.used ? "true" : "false") + " (" + nowStr + ")";
+      if(g_entrySignal.used){
+         ec = clrGray;
+      }else{
+         if(g_entrySignal.action=="Buy"){
+            ec = clrLime;
+         }else{
+            ec = clrTomato;
+         }
+      }
+   }else{
+      e += "(waiting) (" + nowStr + ")";
    }
-   ObjectSetString(0, LABEL_ENTRY, OBJPROP_TEXT, entryText);
-   ObjectSetInteger(0, LABEL_ENTRY, OBJPROP_COLOR, entryColor);
+   ObjectSetString(0, LABEL_ENTRY, OBJPROP_TEXT, e);
+   ObjectSetInteger(0, LABEL_ENTRY, OBJPROP_COLOR, ec);
 }
-
-//+------------------------------------------------------------------+
-//| Manage open positions (partial close + breakeven)                |
-//+------------------------------------------------------------------+
-void ManageOpenPositions() {
-   // Process each open position
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      ulong posTicket = PositionGetTicket(i);
-      if(posTicket <= 0) continue;
-      
-      // Only manage positions for our symbol and magic number
-      if(!PositionSelectByTicket(posTicket)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != Magic_Number) continue;
-      
-      // Skip if already partially closed
+//=========== Position Management ============
+void ManageOpenPositions()
+{
+   for(int i=PositionsTotal()-1;i>=0;i--){
+      ulong tk=PositionGetTicket(i); if(tk<=0) continue;
+      if(!PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC)!=Magic_Number) continue;
       if(g_partialClosed) continue;
-      
-      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
-      double posVolume = PositionGetDouble(POSITION_VOLUME);
-      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-      double breakeven_pips = Y_Pips_Breakeven * 10 * point;
-      
-      // Check if we've reached the breakeven + partial close threshold
-      bool hitTarget = false;
-      
-      if(posType == POSITION_TYPE_BUY && (currentPrice - openPrice >= breakeven_pips)) {
-         hitTarget = true;
-      }
-      else if(posType == POSITION_TYPE_SELL && (openPrice - currentPrice >= breakeven_pips)) {
-         hitTarget = true;
-      }
-      
-      if(hitTarget) {
-         // 1. Partial close half the position
-         if(posVolume >= 0.02) { // Minimum to be able to close half
-            double closeVolume = posVolume / 2;
-            bool closeSuccess = g_trade.PositionClosePartial(posTicket, closeVolume);
-            
-            if(closeSuccess) {
-               if(Enable_Logging)
-                  Print("Partially closed position #", posTicket, " (", closeVolume, " lots)");
-               
-               // 2. Move SL to breakeven
-               bool modifySuccess = g_trade.PositionModify(posTicket, openPrice, PositionGetDouble(POSITION_TP));
-               
-               if(modifySuccess) {
-                  if(Enable_Logging)
-                     Print("Modified SL to breakeven at ", openPrice);
-                  
-                  // Mark as processed
-                  g_partialClosed = true;
-               } else {
-                  Print("Error modifying SL to breakeven: ", GetLastError());
+      ENUM_POSITION_TYPE t=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double open=PositionGetDouble(POSITION_PRICE_OPEN);
+      double cur =PositionGetDouble(POSITION_PRICE_CURRENT);
+      double vol =PositionGetDouble(POSITION_VOLUME);
+      bool hit=false;
+      if(t==POSITION_TYPE_BUY && (cur-open)>=PipsToPrice(Y_Pips_Breakeven)) hit=true;
+      if(t==POSITION_TYPE_SELL && (open-cur)>=PipsToPrice(Y_Pips_Breakeven)) hit=true;
+      if(hit){
+         if(vol>=0.02){
+            double half=vol/2.0;
+            if(g_trade.PositionClosePartial(tk,half)){
+               if(Enable_Logging) Print("Partial closed #",tk," ",DoubleToString(half,2)," lots");
+               double tp=PositionGetDouble(POSITION_TP);
+               if(g_trade.PositionModify(tk, open, tp)){
+                  if(Enable_Logging) Print("Moved SL to BE @",DoubleToString(open,_Digits));
+                  g_partialClosed=true;
+               }else{
+                  Print("Modify BE error: ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
                }
-            } else {
-               Print("Error partially closing position: ", GetLastError());
+            }else{
+               Print("Partial close error #",tk,": ",GetLastError());
             }
-         }
-         else if(Enable_Logging) {
-            Print("Reached breakeven price but volume too small for partial close: ", posVolume);
-         }
-      }
-      else if(Enable_Logging) {
-         double dist = (posType==POSITION_TYPE_BUY) ? (currentPrice - openPrice) : (openPrice - currentPrice);
-         Print("Breakeven not reached yet. Progress=", DoubleToString(dist/(10*point), 1), " pips / target=", Y_Pips_Breakeven);
+         }else if(Enable_Logging) Print("Hit BE but volume too small: ",DoubleToString(vol,2));
+      }else if(Enable_Logging){
+         double prog=PriceDiffInPips(cur,open);
+         Print("BE not reached: ",DoubleToString(prog,1)," / target=",Y_Pips_Breakeven," pips");
       }
    }
 }
-
-//+------------------------------------------------------------------+
-//| Check for trade reversals based on entry signals                 |
-//+------------------------------------------------------------------+
-void CheckForReversals() {
-   // Skip if no entry signal or signal is used
-   if(g_entrySignal.action == "" || g_entrySignal.used || g_entrySignal.timestamp == 0)
+// ===== Đảo chiều: luôn đóng lệnh, không phụ thuộc used =====
+void CheckForReversals()
+{
+   if(g_entrySignal.action=="" || g_entrySignal.timestamp==0) return;
+   
+   // Bỏ kiểm tra lastCheckedId - luôn kiểm tra mỗi khi được gọi
+   // static int lastCheckedId=0;
+   // if(lastCheckedId==g_entrySignal.id) return;
+   // lastCheckedId=g_entrySignal.id;
+   
+   if(Enable_Logging) Print("⚠️ REVERSAL CHECK: Entry signal=",g_entrySignal.action," id=",g_entrySignal.id);
+   string act = NormalizeAction(g_entrySignal.action);
+   
+   if(act == "") {
+      if(Enable_Logging) Print("⚠️ Invalid action after normalize: ", g_entrySignal.action);
       return;
+   }
    
-   // Only check once per signal ID
-   static int lastCheckedId = 0;
-   if(lastCheckedId == g_entrySignal.id)
-      return;
+   if(Enable_Logging) Print("🔍 Checking for opposite positions to ", act, " signal");
+   int posCount = PositionsTotal();
+   if(Enable_Logging) Print("Found ", posCount, " total positions");
    
-   lastCheckedId = g_entrySignal.id;
-   if(Enable_Logging)
-      Print("Checking reversals on new entry signal id=", g_entrySignal.id, " action=", g_entrySignal.action);
-   
-   // Look for positions to close due to signal reversal
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      ulong posTicket = PositionGetTicket(i);
-      if(posTicket <= 0) continue;
+   for(int i=posCount-1; i>=0; i--){
+      ulong tk=PositionGetTicket(i); if(tk<=0) continue;
+      if(!PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC)!=Magic_Number) continue;
       
-      // Only manage positions for our symbol and magic number
-      if(!PositionSelectByTicket(posTicket)) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != Magic_Number) continue;
+      ENUM_POSITION_TYPE t=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      string posType = PosTypeToStr(t);
       
-      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      if(Enable_Logging) Print("Position #", tk, ": type=", posType, ", entry signal=", act);
       
-      // Check for reversal
-      if((posType == POSITION_TYPE_BUY && g_entrySignal.action == "Sell") ||
-         (posType == POSITION_TYPE_SELL && g_entrySignal.action == "Buy")) {
-         
-         // Close the position due to reversal
-         if(g_trade.PositionClose(posTicket)) {
-            if(Enable_Logging) {
-               Print("Closed position #", posTicket, " due to ", g_entrySignal.action, " signal reversal");
-            }
-         } else {
-            Print("Error closing position #", posTicket, ": ", GetLastError());
+      bool shouldClose = false;
+      if(t==POSITION_TYPE_BUY && act=="Sell") shouldClose = true;
+      if(t==POSITION_TYPE_SELL && act=="Buy") shouldClose = true;
+      
+      if(shouldClose){
+         if(Enable_Logging) Print("🔴 CLOSING position #", tk, " (", posType, ") due to opposite signal: ", act);
+         if(g_trade.PositionClose(tk)){
+            if(Enable_Logging) Print("✅ Successfully closed #",tk);
+         }else{
+            Print("❌ Error closing position #",tk,": ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
          }
+      } else {
+         if(Enable_Logging) Print("✅ Position #", tk, " (", posType, ") matches signal (", act, ") - keeping open");
       }
    }
 }
