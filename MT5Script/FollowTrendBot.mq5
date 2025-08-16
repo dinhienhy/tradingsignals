@@ -338,8 +338,8 @@ void ProcessSignals()
       return;
    }
    
-   // Kiểm tra nếu có lệnh đang mở cùng loại
-   bool hasOpenPositionSameType = false;
+   // Kiểm tra và log các lệnh đang mở (chỉ để thông tin)
+   int openSameTypeCount = 0;
    for(int i=PositionsTotal()-1; i>=0; i--) {
       ulong tk = PositionGetTicket(i); if(tk<=0) continue;
       if(!PositionSelectByTicket(tk)) continue;
@@ -351,22 +351,30 @@ void ProcessSignals()
       
       if((t == POSITION_TYPE_BUY && entryAct == "Buy") || 
          (t == POSITION_TYPE_SELL && entryAct == "Sell")) {
-         hasOpenPositionSameType = true;
-         if(Enable_Logging) Print("❌ Skip: already have open ", posType, " position #", tk);
-         break;
+         openSameTypeCount++;
+         if(Enable_Logging) Print("ℹ️ Existing ", posType, " position #", tk, " found. Will open additional position.");
       }
    }
    
-   if(hasOpenPositionSameType) return;
+   // Không ngăn mở lệnh mới, chỉ log thông tin
+   if(Enable_Logging && openSameTypeCount > 0) {
+      Print("ℹ️ Already have ", openSameTypeCount, " open ", entryAct, " positions. Continuing with new entry signal.");
+   }
    
-   // chống trùng theo id - nếu g_entrySignal.timestamp > 0 && id đã xử lý trong phút hiện tại
+   // Kiểm tra nếu ID trùng thì chỉ cần cách nhau tối thiểu 1 phút
    MqlDateTime now; TimeCurrent(now);
-   MqlDateTime signalTime; TimeToStruct(g_entrySignal.timestamp, signalTime);
+   datetime currentTime = TimeCurrent();
+   datetime lastProcessedTime = g_entrySignal.timestamp;
+   int timeDiffSeconds = (int)(currentTime - lastProcessedTime);
    
-   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId && 
-      now.hour==signalTime.hour && now.min==signalTime.min){
-      if(Enable_Logging) Print("❌ Skip: entry id ",g_entrySignal.id," already processed in this minute");
+   // Chỉ kiểm tra nếu cùng ID và đã từng xử lý ID này trước đây
+   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId && timeDiffSeconds < 60){
+      if(Enable_Logging) Print("❌ Skip: entry id ",g_entrySignal.id," đã xử lý cách đây ", timeDiffSeconds, " giây (<60s)");
       return;
+   }
+   
+   if(Enable_Logging && g_entrySignal.id==g_lastProcessedEntryId) {
+      Print("⚠️ Tín hiệu có ID trùng với ID cũ nhưng đã quá 60 giây nên vẫn xử lý");
    }
    
    // nếu server đã used=true thì bỏ qua (an toàn)
@@ -429,8 +437,7 @@ void CloseOppositePositions(string action)
 }
 void ExecuteTrade()
 {
-   if(Enable_Logging) Print("
-💰 EXECUTING TRADE based on signals");
+   if(Enable_Logging) Print("💰 EXECUTING TRADE based on signals");
    
    g_partialClosed=false;
    double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
@@ -647,6 +654,8 @@ void CheckForReversals()
    int posCount = PositionsTotal();
    if(Enable_Logging) Print("Found ", posCount, " total positions");
    
+   bool anyPositionClosed = false;
+   
    for(int i=posCount-1; i>=0; i--){
       ulong tk=PositionGetTicket(i); if(tk<=0) continue;
       if(!PositionSelectByTicket(tk)) continue;
@@ -665,6 +674,7 @@ void CheckForReversals()
       if(shouldClose){
          if(Enable_Logging) Print("🔴 CLOSING position #", tk, " (", posType, ") due to opposite signal: ", act);
          if(g_trade.PositionClose(tk)){
+            anyPositionClosed = true;
             if(Enable_Logging) Print("✅ Successfully closed #",tk);
          }else{
             Print("❌ Error closing position #",tk,": ",GetLastError(),", ret=",g_trade.ResultRetcode(),", ",g_trade.ResultRetcodeDescription());
@@ -672,5 +682,11 @@ void CheckForReversals()
       } else {
          if(Enable_Logging) Print("✅ Position #", tk, " (", posType, ") matches signal (", act, ") - keeping open");
       }
+   }
+   
+   // Reset g_lastProcessedEntryId khi đóng bất kỳ lệnh nào để cho phép vào lệnh mới ngay lập tức
+   if(anyPositionClosed) {
+      if(Enable_Logging) Print("🔄 Resetting lastProcessedEntryId from ", g_lastProcessedEntryId, " to 0 after closing positions");
+      g_lastProcessedEntryId = 0;
    }
 }
