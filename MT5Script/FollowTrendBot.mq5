@@ -34,8 +34,9 @@ SignalInfo g_trendSignal, g_entrySignal;
 int g_apiErrors=0;
 bool g_partialClosed=false;
 datetime g_lastTrendCheck=0, g_lastEntryCheck=0;
-// Chống mở trùng theo entry.id
+// Chống mở trùng theo entry.id và thời gian
 int g_lastProcessedEntryId=0;
+datetime g_lastProcessedTime=0;
 // Retry PUT
 bool g_markPending=false;
 int g_markPendingId=0;
@@ -361,20 +362,37 @@ void ProcessSignals()
       Print("ℹ️ Already have ", openSameTypeCount, " open ", entryAct, " positions. Continuing with new entry signal.");
    }
    
-   // Kiểm tra nếu ID trùng thì chỉ cần cách nhau tối thiểu 1 phút
-   MqlDateTime now; TimeCurrent(now);
-   datetime currentTime = TimeCurrent();
-   datetime lastProcessedTime = g_entrySignal.timestamp;
-   int timeDiffSeconds = (int)(currentTime - lastProcessedTime);
+   // Kiểm tra xem có lệnh nào đang mở không
+   int totalPositions = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--) {
+      ulong tk = PositionGetTicket(i); if(tk<=0) continue;
+      if(!PositionSelectByTicket(tk)) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((int)PositionGetInteger(POSITION_MAGIC) != Magic_Number) continue;
+      totalPositions++;
+   }
    
-   // Chỉ kiểm tra nếu cùng ID và đã từng xử lý ID này trước đây
-   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId && timeDiffSeconds < 60){
+   // Nếu không có lệnh nào mở, reset ID đã xử lý
+   if(totalPositions == 0 && g_lastProcessedEntryId != 0) {
+      if(Enable_Logging) Print("🔄 Không có lệnh nào đang mở. Reset lastProcessedEntryId từ ", g_lastProcessedEntryId, " thành 0");
+      g_lastProcessedEntryId = 0;
+      g_lastProcessedTime = 0;
+   }
+   
+   // Kiểm tra nếu ID trùng thì chỉ cần cách nhau tối thiểu 1 phút
+   datetime currentTime = TimeCurrent();
+   int timeDiffSeconds = (int)(currentTime - g_lastProcessedTime);
+   
+   if(Enable_Logging) Print("ID kiểm tra: ", g_entrySignal.id, ", lastProcessedID: ", g_lastProcessedEntryId, ", thời gian từ lần cuối: ", timeDiffSeconds, "s");
+   
+   // Chỉ kiểm tra nếu cùng ID và thời gian chưa đủ 1 phút
+   if(g_entrySignal.id!=0 && g_entrySignal.id==g_lastProcessedEntryId && timeDiffSeconds < 60 && g_lastProcessedTime > 0){
       if(Enable_Logging) Print("❌ Skip: entry id ",g_entrySignal.id," đã xử lý cách đây ", timeDiffSeconds, " giây (<60s)");
       return;
    }
    
-   if(Enable_Logging && g_entrySignal.id==g_lastProcessedEntryId) {
-      Print("⚠️ Tín hiệu có ID trùng với ID cũ nhưng đã quá 60 giây nên vẫn xử lý");
+   if(Enable_Logging && g_entrySignal.id==g_lastProcessedEntryId && g_lastProcessedTime > 0) {
+      Print("⚠️ Tín hiệu có ID trùng với ID cũ nhưng đã quá ", timeDiffSeconds, " giây nên vẫn xử lý");
    }
    
    // nếu server đã used=true thì bỏ qua (an toàn)
@@ -467,8 +485,11 @@ void ExecuteTrade()
    if(ok){
       // Đánh dấu Id đã xử lý và gọi PUT API
       g_lastProcessedEntryId = g_entrySignal.id;
+      g_lastProcessedTime = TimeCurrent();
       g_entrySignal.used = true;
       UpdateLabelsText();
+      
+      if(Enable_Logging) Print("💾 Cập nhật lastProcessedTime = ", TimeToString(g_lastProcessedTime));
       
       if(Enable_Logging) Print("✅ ORDER OPENED SUCCESSFULLY! Ticket=", g_trade.ResultOrder(), ", Price=", g_trade.ResultPrice());
       if(Enable_Logging) Print("Marking entry signal id=", g_lastProcessedEntryId, " as USED via PUT API");
