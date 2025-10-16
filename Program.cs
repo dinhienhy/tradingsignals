@@ -91,7 +91,19 @@ if (app.Environment.IsProduction())
     {
         var services = scope.ServiceProvider;
         var context = services.GetRequiredService<AppDbContext>();
-        context.Database.Migrate();
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        
+        try
+        {
+            logger.LogInformation("Applying database migrations...");
+            context.Database.Migrate();
+            logger.LogInformation("Database migrations applied successfully!");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "An error occurred while migrating the database.");
+            throw; // Re-throw to prevent app from starting with wrong schema
+        }
     }
 }
 
