@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TradingSignalsApi.Data;
 using TradingSignalsApi.Models;
+using TradingSignalsApi.Services;
 
 namespace TradingSignalsApi.Controllers
 {
@@ -16,11 +17,16 @@ namespace TradingSignalsApi.Controllers
     {
         private readonly AppDbContext _context;
         private readonly ILogger<WebhookController> _logger;
+        private readonly IActiveSignalProcessor _signalProcessor;
 
-        public WebhookController(AppDbContext context, ILogger<WebhookController> logger)
+        public WebhookController(
+            AppDbContext context, 
+            ILogger<WebhookController> logger,
+            IActiveSignalProcessor signalProcessor)
         {
             _context = context;
             _logger = logger;
+            _signalProcessor = signalProcessor;
         }
 
         /// <summary>
@@ -104,7 +110,7 @@ namespace TradingSignalsApi.Controllers
                     swingPrice = swing;
                 }
 
-                // Save signal to database
+                // Save trading signal to history first
                 await _context.TradingSignals.AddAsync(signal);
                 
                 // Handle ActiveTradingSignal (unique by Symbol+Type)
@@ -114,21 +120,25 @@ namespace TradingSignalsApi.Controllers
                 var existingActiveSignal = await _context.ActiveTradingSignals
                     .FirstOrDefaultAsync(a => a.UniqueKey == uniqueKey);
                 
+                ActiveTradingSignal activeSignal;
+                
                 if (existingActiveSignal != null)
                 {
                     // Update existing record
                     existingActiveSignal.Action = signal.Action;
                     existingActiveSignal.Price = signal.Price;
                     existingActiveSignal.Timestamp = signal.Timestamp;
-                    existingActiveSignal.Swing = swingPrice;
+                    existingActiveSignal.Swing = swingPrice?.ToString();
                     existingActiveSignal.Used = false; // Đặt lại trạng thái Used về false khi có tín hiệu mới
-                    existingActiveSignal.Resolved = false; // Đặt lại trạng thái Resolved về false khi có tín hiệu mới
-                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}, reset Used and Resolved status", signal.Symbol, path);
+                    existingActiveSignal.Resolved = 0; // Đặt lại trạng thái Resolved về 0 khi có tín hiệu mới
+                    
+                    activeSignal = existingActiveSignal;
+                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}", signal.Symbol, path);
                 }
                 else
                 {
                     // Create new record
-                    var activeSignal = new ActiveTradingSignal
+                    activeSignal = new ActiveTradingSignal
                     {
                         Symbol = signal.Symbol,
                         Action = signal.Action,
@@ -136,19 +146,34 @@ namespace TradingSignalsApi.Controllers
                         Timestamp = signal.Timestamp,
                         Type = path,
                         UniqueKey = uniqueKey,
-                        Swing = swingPrice
+                        Swing = swingPrice?.ToString()
                     };
                     
                     await _context.ActiveTradingSignals.AddAsync(activeSignal);
                     _logger.LogInformation("Created new active signal for {Symbol}/{Type}", signal.Symbol, path);
                 }
                 
+                // Save to database first
                 await _context.SaveChangesAsync();
+                
+                // **POST-PROCESS SIGNAL THROUGH BUSINESS RULES**
+                // Rules will update fields like Resolved, Swing, etc.
+                _logger.LogInformation("Running business rules for {Symbol}/{Type}", signal.Symbol, path);
+                var processingResult = await _signalProcessor.ProcessSignalAsync(activeSignal);
+                
+                // Save any updates made by rules
+                await _context.SaveChangesAsync();
+                
+                _logger.LogInformation("Signal processing completed for {Symbol}/{Type}: {Message}", 
+                    signal.Symbol, path, processingResult.Message);
 
-                _logger.LogInformation("Trading signal saved: {Symbol} {Action} at {Price}", 
-                    signal.Symbol, signal.Action, signal.Price);
-
-                return Ok(new { message = "Trading signal received", signalId = signal.Id });
+                return Ok(new 
+                { 
+                    message = "Trading signal received and processed", 
+                    signalId = signal.Id,
+                    processingSummary = processingResult.Message,
+                    rulesExecuted = processingResult.ValidationResult?.RuleResults.Count ?? 0
+                });
             }
             catch (JsonException ex)
             {

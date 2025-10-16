@@ -82,6 +82,18 @@ builder.Services.AddSwaggerGen(c =>
 // Add HTTP context accessor for logging
 builder.Services.AddHttpContextAccessor();
 
+// Register Business Rules - Only Trading Strategy Specific Rules for Post-Processing
+// These rules run AFTER signal is saved to update fields like Resolved, Swing, etc.
+builder.Services.AddTransient<TradingSignalsApi.BusinessRules.ISignalRule, TradingSignalsApi.BusinessRules.Rules.EntryCHoCHRule>();
+builder.Services.AddTransient<TradingSignalsApi.BusinessRules.ISignalRule, TradingSignalsApi.BusinessRules.Rules.EntryBOSRule>();
+
+// Note: Validation rules (Price, Duplicate, etc.) are disabled
+// Signals are accepted and saved first, then post-processed by strategy rules
+
+// Register Rule Engine and Services
+builder.Services.AddScoped<TradingSignalsApi.BusinessRules.SignalRuleEngine>();
+builder.Services.AddScoped<TradingSignalsApi.Services.IActiveSignalProcessor, TradingSignalsApi.Services.ActiveSignalProcessor>();
+
 var app = builder.Build();
 
 // Apply migrations automatically

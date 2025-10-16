@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TradingSignalsApi.Data;
 using TradingSignalsApi.Models;
+using TradingSignalsApi.Services;
 
 namespace TradingSignalsApi.Controllers
 {
@@ -19,12 +20,18 @@ namespace TradingSignalsApi.Controllers
         private readonly AppDbContext _context;
         private readonly ILogger<ActiveSignalsController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IActiveSignalProcessor _signalProcessor;
 
-        public ActiveSignalsController(AppDbContext context, ILogger<ActiveSignalsController> logger, IConfiguration configuration)
+        public ActiveSignalsController(
+            AppDbContext context, 
+            ILogger<ActiveSignalsController> logger, 
+            IConfiguration configuration,
+            IActiveSignalProcessor signalProcessor)
         {
             _context = context;
             _logger = logger;
             _configuration = configuration;
+            _signalProcessor = signalProcessor;
         }
 
         private string GetApiKey()
@@ -158,6 +165,63 @@ namespace TradingSignalsApi.Controllers
 
             _logger.LogInformation("Retrieved {Count} unused active signals", activeSignals.Count);
             return Ok(activeSignals);
+        }
+
+        /// <summary>
+        /// Validate a signal through business rules (without saving)
+        /// </summary>
+        /// <param name="signal">The signal to validate</param>
+        /// <returns>Validation result</returns>
+        [HttpPost("validate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<object>> ValidateSignal([FromBody] ActiveTradingSignal signal)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to validate signal");
+                return Unauthorized("Invalid API key");
+            }
+
+            if (signal == null)
+            {
+                return BadRequest("Signal data is required");
+            }
+
+            var result = await _signalProcessor.ProcessSignalAsync(signal);
+
+            return Ok(new
+            {
+                success = result.Success,
+                message = result.Message,
+                validationDetails = result.ValidationResult,
+                processedSignal = result.ProcessedSignal
+            });
+        }
+
+        /// <summary>
+        /// Run maintenance tasks (expire old signals, etc.)
+        /// </summary>
+        /// <returns>Status message</returns>
+        [HttpPost("maintenance")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<object>> RunMaintenance()
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to run maintenance");
+                return Unauthorized("Invalid API key");
+            }
+
+            await _signalProcessor.RunMaintenanceAsync();
+
+            return Ok(new { message = "Maintenance completed successfully" });
         }
     }
 }
