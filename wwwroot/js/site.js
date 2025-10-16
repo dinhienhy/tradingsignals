@@ -430,7 +430,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function loadActiveSignals() {
         // Show loading state
-        activeSignalsList.innerHTML = '<tr><td colspan="6" class="text-center">Loading active signals...</td></tr>';
+        activeSignalsList.innerHTML = '<tr><td colspan="8" class="text-center">Loading active signals...</td></tr>';
         
         fetch('/api/activesignals', {
             headers: {
@@ -453,7 +453,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 resetActiveSignalApiKey();
             } else {
                 showToast('Error', 'Failed to load active signals. ' + error.message, 'danger');
-                activeSignalsList.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Failed to load active signals. Check console for details.</td></tr>';
+                activeSignalsList.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Failed to load active signals. Check console for details.</td></tr>';
             }
         });
     }
@@ -462,7 +462,7 @@ document.addEventListener('DOMContentLoaded', function() {
         activeSignalsList.innerHTML = '';
         
         if (!signals || signals.length === 0) {
-            activeSignalsList.innerHTML = '<tr><td colspan="6" class="text-center">No active signals found</td></tr>';
+            activeSignalsList.innerHTML = '<tr><td colspan="8" class="text-center">No active signals found</td></tr>';
             return;
         }
         
@@ -477,9 +477,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${signal.symbol}</td>
                 <td>${signal.action}</td>
                 <td>${signal.price}</td>
+                <td>${signal.swing || '-'}</td>
                 <td>${signal.type}</td>
                 <td>${formattedDate}</td>
                 <td>${signal.used ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+                <td>${signal.resolved ? '<span class="badge bg-info">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
             `;
             activeSignalsList.appendChild(row);
         });
