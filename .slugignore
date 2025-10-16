@@ -1,0 +1,11 @@
+*.md
+*.ps1
+.git
+.gitignore
+obj/
+bin/Debug
+*.db
+*.db-shm
+*.db-wal
+test-*.ps1
+UPDATE_NOTES.md
