@@ -42,5 +42,26 @@ namespace TradingSignalsApi.Models
             get => _used ? 1 : 0; 
             set => _used = value != 0; 
         }
+        
+        // Swing price level from TradingView signal
+        public decimal? Swing { get; set; }
+        
+        // Flag to mark if the signal has been resolved (processed)
+        private bool _resolved = false;
+        
+        [NotMapped]
+        public bool Resolved 
+        { 
+            get => _resolved; 
+            set => _resolved = value; 
+        }
+        
+        // Trường này sẽ ánh xạ với cột integer trong database
+        [Column("Resolved")]
+        public int ResolvedAsInt 
+        { 
+            get => _resolved ? 1 : 0; 
+            set => _resolved = value != 0; 
+        }
     }
 }

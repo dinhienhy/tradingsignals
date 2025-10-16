@@ -48,5 +48,29 @@ Thumbs.db
 *.mov
 *.wmv
 
-/bin/Debug
-/obj
+# .NET build artifacts
+bin/
+obj/
+*.db
+*.db-shm
+*.db-wal
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache/options directory
+.vs/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]pp_[Dd]ata/
+
+# NuGet Packages
+*.nupkg
+packages/

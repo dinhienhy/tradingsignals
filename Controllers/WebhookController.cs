@@ -97,6 +97,13 @@ namespace TradingSignalsApi.Controllers
                     signal.Timestamp = timestamp;
                 }
 
+                // Try to extract swing price if provided (optional field)
+                decimal? swingPrice = null;
+                if (TryExtractDecimal(payload.RootElement, "swing", out var swing))
+                {
+                    swingPrice = swing;
+                }
+
                 // Save signal to database
                 await _context.TradingSignals.AddAsync(signal);
                 
@@ -113,8 +120,10 @@ namespace TradingSignalsApi.Controllers
                     existingActiveSignal.Action = signal.Action;
                     existingActiveSignal.Price = signal.Price;
                     existingActiveSignal.Timestamp = signal.Timestamp;
+                    existingActiveSignal.Swing = swingPrice;
                     existingActiveSignal.Used = false; // Đặt lại trạng thái Used về false khi có tín hiệu mới
-                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}, reset Used status", signal.Symbol, path);
+                    existingActiveSignal.Resolved = false; // Đặt lại trạng thái Resolved về false khi có tín hiệu mới
+                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}, reset Used and Resolved status", signal.Symbol, path);
                 }
                 else
                 {
@@ -126,7 +135,8 @@ namespace TradingSignalsApi.Controllers
                         Price = signal.Price,
                         Timestamp = signal.Timestamp,
                         Type = path,
-                        UniqueKey = uniqueKey
+                        UniqueKey = uniqueKey,
+                        Swing = swingPrice
                     };
                     
                     await _context.ActiveTradingSignals.AddAsync(activeSignal);

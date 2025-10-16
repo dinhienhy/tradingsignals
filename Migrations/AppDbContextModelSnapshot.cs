@@ -32,6 +32,13 @@ namespace TradingSignalsApi.Migrations
                     b.Property<decimal>("Price")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("ResolvedAsInt")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("Resolved");
+
+                    b.Property<decimal?>("Swing")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Symbol")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -47,8 +54,9 @@ namespace TradingSignalsApi.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("Used")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("UsedAsInt")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("Used");
 
                     b.HasKey("Id");
 
