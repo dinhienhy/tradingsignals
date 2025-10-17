@@ -82,6 +82,12 @@ builder.Services.AddSwaggerGen(c =>
 // Add HTTP context accessor for logging
 builder.Services.AddHttpContextAccessor();
 
+// Add HttpClient for external API calls
+builder.Services.AddHttpClient();
+
+// Register Services
+builder.Services.AddSingleton<TradingSignalsApi.Services.MetaApiService>();
+
 // Register Background Services
 // Signal Monitoring Service runs every 1 minute to process and auto-resolve signals
 builder.Services.AddHostedService<TradingSignalsApi.Services.SignalMonitoringService>();

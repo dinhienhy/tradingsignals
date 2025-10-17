@@ -11,14 +11,17 @@ public class SignalMonitoringService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SignalMonitoringService> _logger;
+    private readonly MetaApiService _metaApiService;
     private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
     
     public SignalMonitoringService(
         IServiceProvider serviceProvider,
-        ILogger<SignalMonitoringService> logger)
+        ILogger<SignalMonitoringService> logger,
+        MetaApiService metaApiService)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _metaApiService = metaApiService;
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -107,7 +110,7 @@ public class SignalMonitoringService : BackgroundService
     /// <summary>
     /// Process EntryCHoCH signals
     /// </summary>
-    private Task<(int resolved, int updated)> ProcessCHoCHSignalsAsync(
+    private async Task<(int resolved, int updated)> ProcessCHoCHSignalsAsync(
         AppDbContext context, 
         List<ActiveTradingSignal> signals)
     {
@@ -120,6 +123,7 @@ public class SignalMonitoringService : BackgroundService
         
         foreach (var symbolGroup in bySymbol)
         {
+            var symbol = symbolGroup.Key;
             var symbolSignals = symbolGroup.OrderByDescending(s => s.Timestamp).ToList();
             
             // Rule 1: Auto-expire CHoCH signals older than 4 hours
@@ -158,9 +162,72 @@ public class SignalMonitoringService : BackgroundService
                     }
                 }
             }
+            
+            // Rule 3: Check price against BOS Swing (NEW LOGIC)
+            // Get current price from MetaApi
+            var currentPrice = await _metaApiService.GetCurrentPriceAsync(symbol);
+            
+            if (currentPrice != null)
+            {
+                // Get all BOS signals for this symbol
+                var bosSignals = await context.ActiveTradingSignals
+                    .Where(s => s.Symbol == symbol 
+                             && s.Type != null && s.Type.ToLower() == "entrybos" 
+                             && !s.Resolved
+                             && s.Swing.HasValue)
+                    .OrderByDescending(s => s.Timestamp)
+                    .ToListAsync();
+                
+                if (bosSignals.Any())
+                {
+                    // Check each CHoCH signal against BOS swings
+                    foreach (var chochSignal in symbolSignals.Where(s => !s.Resolved))
+                    {
+                        // Find BOS signals that came BEFORE this CHoCH
+                        var relevantBOS = bosSignals
+                            .Where(b => b.Timestamp < chochSignal.Timestamp)
+                            .FirstOrDefault();
+                        
+                        if (relevantBOS != null && relevantBOS.Swing.HasValue)
+                        {
+                            var bosSwing = relevantBOS.Swing.Value;
+                            var price = currentPrice.MidPrice;
+                            
+                            bool shouldResolve = false;
+                            
+                            // CHoCH BUY: Resolve if price goes BELOW BOS Swing
+                            if (chochSignal.Action == "BUY" && price < bosSwing)
+                            {
+                                shouldResolve = true;
+                                _logger.LogInformation(
+                                    "CHoCH BUY {Symbol} resolved: Price {Price} broke below BOS Swing {Swing}",
+                                    symbol, price, bosSwing);
+                            }
+                            // CHoCH SELL: Resolve if price goes ABOVE BOS Swing
+                            else if (chochSignal.Action == "SELL" && price > bosSwing)
+                            {
+                                shouldResolve = true;
+                                _logger.LogInformation(
+                                    "CHoCH SELL {Symbol} resolved: Price {Price} broke above BOS Swing {Swing}",
+                                    symbol, price, bosSwing);
+                            }
+                            
+                            if (shouldResolve)
+                            {
+                                chochSignal.Resolved = true;
+                                resolvedCount++;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Could not get current price for {Symbol}, skipping price check", symbol);
+            }
         }
         
-        return Task.FromResult((resolvedCount, updatedCount));
+        return (resolvedCount, updatedCount);
     }
     
     /// <summary>
