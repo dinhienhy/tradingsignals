@@ -44,7 +44,7 @@ namespace TradingSignalsApi.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<ActionResult<IEnumerable<ActiveTradingSignal>>> GetActiveSignals()
+        public async Task<ActionResult> GetActiveSignals()
         {
             var apiKey = GetApiKey();
             var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
@@ -61,11 +61,26 @@ namespace TradingSignalsApi.Controllers
             if (activeSignals.Count == 0)
             {
                 // Trả về mảng rỗng thay vì NoContent để tránh lỗi JSON parse ở client
-                return Ok(new List<ActiveTradingSignal>());
+                return Ok(new List<object>());
             }
 
+            // Map to DTO to ensure all fields are included
+            var result = activeSignals.Select(s => new
+            {
+                id = s.Id,
+                symbol = s.Symbol,
+                action = s.Action,
+                price = s.Price,
+                timestamp = s.Timestamp,
+                type = s.Type,
+                uniqueKey = s.UniqueKey,
+                used = s.Used,
+                resolved = s.Resolved,
+                swing = s.Swing  // Explicitly include Swing
+            }).ToList();
+
             _logger.LogInformation("Retrieved {Count} active signals", activeSignals.Count);
-            return Ok(activeSignals);
+            return Ok(result);
         }
 
         /// <summary>
@@ -77,7 +92,7 @@ namespace TradingSignalsApi.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<ActionResult<IEnumerable<ActiveTradingSignal>>> GetActiveSignalsByType(string type)
+        public async Task<ActionResult> GetActiveSignalsByType(string type)
         {
             var apiKey = GetApiKey();
             var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
@@ -95,11 +110,26 @@ namespace TradingSignalsApi.Controllers
             if (activeSignals.Count == 0)
             {
                 // Trả về mảng rỗng thay vì NoContent để tránh lỗi JSON parse ở client
-                return Ok(new List<ActiveTradingSignal>());
+                return Ok(new List<object>());
             }
 
+            // Map to DTO to ensure all fields are included
+            var result = activeSignals.Select(s => new
+            {
+                id = s.Id,
+                symbol = s.Symbol,
+                action = s.Action,
+                price = s.Price,
+                timestamp = s.Timestamp,
+                type = s.Type,
+                uniqueKey = s.UniqueKey,
+                used = s.Used,
+                resolved = s.Resolved,
+                swing = s.Swing
+            }).ToList();
+
             _logger.LogInformation("Retrieved {Count} active signals for type {Type}", activeSignals.Count, type);
-            return Ok(activeSignals);
+            return Ok(result);
         }
 
         /// <summary>
@@ -144,7 +174,7 @@ namespace TradingSignalsApi.Controllers
         [HttpGet("unused")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public async Task<ActionResult<IEnumerable<ActiveTradingSignal>>> GetUnusedActiveSignals()
+        public async Task<ActionResult> GetUnusedActiveSignals()
         {
             var apiKey = GetApiKey();
             var configuredApiKey = _configuration["API_KEY"] ?? System.Environment.GetEnvironmentVariable("API_KEY");
@@ -159,8 +189,23 @@ namespace TradingSignalsApi.Controllers
                 .OrderByDescending(s => s.Timestamp)
                 .ToListAsync();
 
+            // Map to DTO to ensure all fields are included
+            var result = activeSignals.Select(s => new
+            {
+                id = s.Id,
+                symbol = s.Symbol,
+                action = s.Action,
+                price = s.Price,
+                timestamp = s.Timestamp,
+                type = s.Type,
+                uniqueKey = s.UniqueKey,
+                used = s.Used,
+                resolved = s.Resolved,
+                swing = s.Swing
+            }).ToList();
+
             _logger.LogInformation("Retrieved {Count} unused active signals", activeSignals.Count);
-            return Ok(activeSignals);
+            return Ok(result);
         }
     }
 }

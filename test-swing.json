@@ -1,0 +1,8 @@
+{
+  "secret": "test-webhook-secret-123",
+  "symbol": "EURUSD",
+  "action": "BUY",
+  "price": 1.05000,
+  "swing": 1.04800,
+  "timestamp": "2025-10-17T09:30:00Z"
+}
