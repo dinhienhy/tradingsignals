@@ -432,7 +432,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading state
         activeSignalsList.innerHTML = '<tr><td colspan="8" class="text-center">Loading active signals...</td></tr>';
         
-        fetch('/api/activesignals', {
+        fetch('/api/active-signals', {
             headers: {
                 'X-API-Key': activeSignalApiKey
             }
