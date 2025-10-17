@@ -90,19 +90,32 @@ public class SignalMonitoringService : BackgroundService
         // Group signals by type for processing
         var signalsByType = activeSignals.GroupBy(s => s.Type?.ToLower() ?? "unknown");
         
+        await _serviceLogger.InfoAsync("SignalMonitoring", "SignalTypes", 
+            $"Processing {signalsByType.Count()} different signal types",
+            data: new {
+                Types = signalsByType.Select(g => new { Type = g.Key, Count = g.Count() }).ToList()
+            });
+        
         foreach (var typeGroup in signalsByType)
         {
-            var type = typeGroup.Key;
-            var signals = typeGroup.ToList();
+            var signalType = typeGroup.Key;
+            var typeSignals = typeGroup.ToList();
             
-            _logger.LogInformation("Processing {Count} signals for type: {Type}", signals.Count, type);
+            await _serviceLogger.InfoAsync("SignalMonitoring", "ProcessType", 
+                $"Processing {typeSignals.Count} signals of type: {signalType}",
+                data: new { SignalType = signalType, Count = typeSignals.Count });
             
-            (int r, int u) result = type switch
+            // Process different signal types
+            (int r, int u) result = signalType switch
             {
-                "entrychoch" => await ProcessCHoCHSignalsAsync(context, signals),
-                "entrybos" => await ProcessBOSSignalsAsync(context, signals),
-                _ => await ProcessGenericSignalsAsync(context, signals)
+                "entrychoch" => await ProcessCHoCHSignalsAsync(context, typeSignals),
+                "entrybos" => await ProcessBOSSignalsAsync(context, typeSignals),
+                _ => await ProcessGenericSignalsAsync(context, typeSignals)
             };
+            
+            await _serviceLogger.InfoAsync("SignalMonitoring", "TypeComplete", 
+                $"Completed processing {signalType}: Resolved={result.r}, Updated={result.u}",
+                data: new { SignalType = signalType, Resolved = result.r, Updated = result.u });
             
             resolvedCount += result.r;
             updatedCount += result.u;
@@ -137,17 +150,36 @@ public class SignalMonitoringService : BackgroundService
         AppDbContext context, 
         List<ActiveTradingSignal> signals)
     {
-        var now = DateTime.UtcNow;
         int resolvedCount = 0;
         int updatedCount = 0;
+        var now = DateTime.UtcNow;
+        
+        _logger.LogInformation("Processing {Count} signals for type: {Type}", 
+            signals.Count, signals.First().Type?.ToLower() ?? "unknown");
+        
+        await _serviceLogger.InfoAsync("CHoCH", "ProcessStart", 
+            $"Starting to process {signals.Count} CHoCH signals",
+            data: new { 
+                TotalSignals = signals.Count,
+                Symbols = signals.Select(s => s.Symbol).Distinct().ToList()
+            });
         
         // Group by symbol
-        var bySymbol = signals.GroupBy(s => s.Symbol);
+        var signalsBySymbol = signals.GroupBy(s => s.Symbol);
         
-        foreach (var symbolGroup in bySymbol)
+        foreach (var symbolGroup in signalsBySymbol)
         {
             var symbol = symbolGroup.Key;
             var symbolSignals = symbolGroup.OrderByDescending(s => s.Timestamp).ToList();
+            
+            await _serviceLogger.DebugAsync("CHoCH", "ProcessSymbol", 
+                $"Processing {symbolSignals.Count} CHoCH signals for {symbol}",
+                symbol: symbol,
+                data: new {
+                    SignalCount = symbolSignals.Count,
+                    Actions = symbolSignals.Select(s => s.Action).ToList(),
+                    Timestamps = symbolSignals.Select(s => s.Timestamp).ToList()
+                });
             
             // Rule 1: Auto-expire CHoCH signals older than 4 hours
             foreach (var signal in symbolSignals)
@@ -212,6 +244,14 @@ public class SignalMonitoringService : BackgroundService
                     .OrderByDescending(s => s.Timestamp)
                     .ToListAsync();
                 
+                await _serviceLogger.DebugAsync("CHoCH", "QueryBOS", 
+                    $"Found {bosSignals.Count} active BOS signals for {symbol}",
+                    symbol: symbol,
+                    data: new {
+                        BOSCount = bosSignals.Count,
+                        BOSSwings = bosSignals.Select(b => new { b.Action, b.Swing, b.Timestamp }).ToList()
+                    });
+                
                 if (bosSignals.Any())
                 {
                     // Check each CHoCH signal against BOS swings
@@ -224,8 +264,23 @@ public class SignalMonitoringService : BackgroundService
                         
                         if (relevantBOS != null && relevantBOS.Swing.HasValue)
                         {
-                            var bosSwing = relevantBOS.Swing.Value;
                             var price = currentPrice.MidPrice;
+                            var bosSwing = relevantBOS.Swing.Value;
+                            
+                            await _serviceLogger.DebugAsync("CHoCH", "CheckPrice", 
+                                $"Checking CHoCH {chochSignal.Action} {symbol}: Price={price} vs BOS Swing={bosSwing}",
+                                symbol: symbol,
+                                signalType: "EntryCHoCH",
+                                data: new {
+                                    CHoCHId = chochSignal.Id,
+                                    CHoCHAction = chochSignal.Action,
+                                    CHoCHTimestamp = chochSignal.Timestamp,
+                                    CurrentPrice = price,
+                                    BOSSwing = bosSwing,
+                                    BOSId = relevantBOS.Id,
+                                    BOSTimestamp = relevantBOS.Timestamp,
+                                    PriceDifference = chochSignal.Action == "BUY" ? price - bosSwing : bosSwing - price
+                                });
                             
                             bool shouldResolve = false;
                             
@@ -275,8 +330,40 @@ public class SignalMonitoringService : BackgroundService
                                 chochSignal.Resolved = true;
                                 resolvedCount++;
                             }
+                            else
+                            {
+                                await _serviceLogger.DebugAsync("CHoCH", "PriceNotBroken", 
+                                    $"CHoCH {chochSignal.Action} {symbol} still active: Price has not broken swing level",
+                                    symbol: symbol,
+                                    signalType: "EntryCHoCH",
+                                    data: new {
+                                        CHoCHAction = chochSignal.Action,
+                                        CurrentPrice = price,
+                                        BOSSwing = bosSwing,
+                                        RequiredCondition = chochSignal.Action == "BUY" ? "Price < Swing" : "Price > Swing"
+                                    });
+                            }
+                        }
+                        else
+                        {
+                            await _serviceLogger.WarningAsync("CHoCH", "NoBOSFound", 
+                                $"No relevant BOS signal found for CHoCH {chochSignal.Action} {symbol}",
+                                symbol: symbol,
+                                signalType: "EntryCHoCH",
+                                data: new {
+                                    CHoCHId = chochSignal.Id,
+                                    CHoCHTimestamp = chochSignal.Timestamp,
+                                    TotalBOSCount = bosSignals.Count
+                                });
                         }
                     }
+                }
+                else
+                {
+                    await _serviceLogger.InfoAsync("CHoCH", "NoBOSSignals", 
+                        $"No active BOS signals with Swing found for {symbol}, cannot check price break",
+                        symbol: symbol,
+                        signalType: "EntryCHoCH");
                 }
             }
             else
@@ -303,12 +390,28 @@ public class SignalMonitoringService : BackgroundService
         int resolvedCount = 0;
         int updatedCount = 0;
         
+        await _serviceLogger.InfoAsync("BOS", "ProcessStart", 
+            $"Starting to process {signals.Count} BOS signals",
+            data: new { 
+                TotalSignals = signals.Count,
+                Symbols = signals.Select(s => s.Symbol).Distinct().ToList()
+            });
+        
         // Group by symbol
         var bySymbol = signals.GroupBy(s => s.Symbol);
         
         foreach (var symbolGroup in bySymbol)
         {
             var symbolSignals = symbolGroup.OrderByDescending(s => s.Timestamp).ToList();
+            
+            await _serviceLogger.DebugAsync("BOS", "ProcessSymbol", 
+                $"Processing {symbolSignals.Count} BOS signals for {symbolGroup.Key}",
+                symbol: symbolGroup.Key,
+                data: new {
+                    SignalCount = symbolSignals.Count,
+                    Actions = symbolSignals.Select(s => s.Action).ToList(),
+                    Swings = symbolSignals.Select(s => s.Swing).ToList()
+                });
             
             // Rule 1: Auto-expire BOS signals older than 8 hours
             foreach (var signal in symbolSignals)
