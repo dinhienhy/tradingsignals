@@ -26,6 +26,11 @@ namespace TradingSignalsApi.Data
         /// Collection of active trading signals for MT5 bot (one per Symbol+Type)
         /// </summary>
         public DbSet<ActiveTradingSignal> ActiveTradingSignals { get; set; } = null!;
+        
+        /// <summary>
+        /// Collection of service logs for monitoring and debugging
+        /// </summary>
+        public DbSet<ServiceLog> ServiceLogs { get; set; } = null!;
 
         /// <summary>
         /// Configure the model that was discovered by convention from the entity types
@@ -62,6 +67,15 @@ namespace TradingSignalsApi.Data
             modelBuilder.Entity<ActiveTradingSignal>()
                 .HasIndex(a => a.UniqueKey)
                 .IsUnique();
+                
+            // Configure ServiceLog
+            modelBuilder.Entity<ServiceLog>()
+                .Property(s => s.Id)
+                .UseIdentityColumn();
+                
+            // Add index on Timestamp for better query performance
+            modelBuilder.Entity<ServiceLog>()
+                .HasIndex(s => s.Timestamp);
         }
     }
 }

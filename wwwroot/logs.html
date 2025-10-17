@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Logs - Trading Signals</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #38bdf8;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 30px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+
+        .stat-card h3 {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+
+        .filters {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #334155;
+        }
+
+        .filters h2 {
+            color: #38bdf8;
+            margin-bottom: 15px;
+            font-size: 1.25rem;
+        }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .filter-group label {
+            display: block;
+            color: #94a3b8;
+            margin-bottom: 5px;
+            font-size: 0.875rem;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #38bdf8;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #38bdf8;
+            color: #0f172a;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #0ea5e9;
+        }
+
+        button.secondary {
+            background: #334155;
+            color: #e2e8f0;
+        }
+
+        button.secondary:hover {
+            background: #475569;
+        }
+
+        .logs-container {
+            background: #1e293b;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            overflow: hidden;
+        }
+
+        .log-entry {
+            padding: 15px;
+            border-bottom: 1px solid #334155;
+            transition: background 0.2s;
+        }
+
+        .log-entry:hover {
+            background: #0f172a;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .log-level {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .log-level.INFO {
+            background: #1e40af;
+            color: #bfdbfe;
+        }
+
+        .log-level.WARNING {
+            background: #b45309;
+            color: #fed7aa;
+        }
+
+        .log-level.ERROR {
+            background: #991b1b;
+            color: #fecaca;
+        }
+
+        .log-level.DEBUG {
+            background: #4b5563;
+            color: #d1d5db;
+        }
+
+        .log-source {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        .log-action {
+            color: #94a3b8;
+        }
+
+        .log-timestamp {
+            margin-left: auto;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+
+        .log-message {
+            color: #e2e8f0;
+            margin-bottom: 5px;
+        }
+
+        .log-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .log-detail {
+            background: #0f172a;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .log-detail-label {
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+
+        .log-detail-value {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        .log-data {
+            margin-top: 10px;
+            background: #0f172a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        .log-data pre {
+            color: #10b981;
+            font-size: 0.75rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .error-message {
+            background: #991b1b;
+            color: #fecaca;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .auto-refresh label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
+        .auto-refresh input[type="checkbox"] {
+            width: auto;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Service Logs</h1>
+        <p class="subtitle">Real-time monitoring of background services and API activities</p>
+
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <h3>Total Logs</h3>
+                <div class="value" id="totalLogs">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last 24 Hours</h3>
+                <div class="value" id="last24h">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last Hour</h3>
+                <div class="value" id="lastHour">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Recent Errors</h3>
+                <div class="value" id="recentErrors" style="color: #f87171;">-</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <h2>Filters</h2>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="levelFilter">Log Level</label>
+                    <select id="levelFilter">
+                        <option value="">All Levels</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="DEBUG">DEBUG</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="sourceFilter">Source</label>
+                    <select id="sourceFilter">
+                        <option value="">All Sources</option>
+                        <option value="SignalMonitoring">Signal Monitoring</option>
+                        <option value="MetaApi">MetaApi</option>
+                        <option value="CHoCH">CHoCH</option>
+                        <option value="BOS">BOS</option>
+                        <option value="Webhook">Webhook</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="symbolFilter">Symbol</label>
+                    <input type="text" id="symbolFilter" placeholder="e.g., EURUSD">
+                </div>
+                <div class="filter-group">
+                    <label for="limitFilter">Limit</label>
+                    <select id="limitFilter">
+                        <option value="50">50 logs</option>
+                        <option value="100" selected>100 logs</option>
+                        <option value="200">200 logs</option>
+                        <option value="500">500 logs</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="loadLogs()">Apply Filters</button>
+            <button class="secondary" onclick="clearFilters()">Clear Filters</button>
+            
+            <div class="auto-refresh">
+                <label>
+                    <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
+                    Auto-refresh every 10 seconds
+                </label>
+            </div>
+        </div>
+
+        <div class="logs-container" id="logsContainer">
+            <div class="loading">Loading logs...</div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/servicelogs/stats');
+                const stats = await response.json();
+                
+                document.getElementById('totalLogs').textContent = stats.totalLogs.toLocaleString();
+                document.getElementById('last24h').textContent = stats.last24Hours.toLocaleString();
+                document.getElementById('lastHour').textContent = stats.lastHour.toLocaleString();
+                document.getElementById('recentErrors').textContent = stats.recentErrors.length;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadLogs() {
+            const level = document.getElementById('levelFilter').value;
+            const source = document.getElementById('sourceFilter').value;
+            const symbol = document.getElementById('symbolFilter').value.trim();
+            const limit = document.getElementById('limitFilter').value;
+
+            const params = new URLSearchParams();
+            if (level) params.append('level', level);
+            if (source) params.append('source', source);
+            if (symbol) params.append('symbol', symbol);
+            params.append('limit', limit);
+
+            try {
+                const response = await fetch(`/api/servicelogs?${params}`);
+                const logs = await response.json();
+
+                const container = document.getElementById('logsContainer');
+
+                if (logs.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📭</div>
+                            <h3>No logs found</h3>
+                            <p>Try adjusting your filters</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = logs.map(log => {
+                    const timestamp = new Date(log.timestamp).toLocaleString();
+                    let detailsHtml = '';
+                    
+                    if (log.symbol || log.signalType || log.executionTimeMs) {
+                        detailsHtml = '<div class="log-details">';
+                        if (log.symbol) {
+                            detailsHtml += `
+                                <div class="log-detail">
+                                    <div class="log-detail-label">Symbol</div>
+                                    <div class="log-detail-value">${log.symbol}</div>
+                                </div>
+                            `;
+                        }
+                        if (log.signalType) {
+                            detailsHtml += `
+                                <div class="log-detail">
+                                    <div class="log-detail-label">Type</div>
+                                    <div class="log-detail-value">${log.signalType}</div>
+                                </div>
+                            `;
+                        }
+                        if (log.executionTimeMs !== null) {
+                            detailsHtml += `
+                                <div class="log-detail">
+                                    <div class="log-detail-label">Execution Time</div>
+                                    <div class="log-detail-value">${log.executionTimeMs}ms</div>
+                                </div>
+                            `;
+                        }
+                        detailsHtml += '</div>';
+                    }
+
+                    let dataHtml = '';
+                    if (log.data) {
+                        try {
+                            const jsonData = JSON.parse(log.data);
+                            dataHtml = `
+                                <div class="log-data">
+                                    <pre>${JSON.stringify(jsonData, null, 2)}</pre>
+                                </div>
+                            `;
+                        } catch (e) {
+                            dataHtml = `<div class="log-data"><pre>${log.data}</pre></div>`;
+                        }
+                    }
+
+                    return `
+                        <div class="log-entry">
+                            <div class="log-header">
+                                <span class="log-level ${log.level}">${log.level}</span>
+                                <span class="log-source">${log.source}</span>
+                                <span class="log-action">${log.action}</span>
+                                <span class="log-timestamp">${timestamp}</span>
+                            </div>
+                            <div class="log-message">${log.message}</div>
+                            ${detailsHtml}
+                            ${dataHtml}
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                document.getElementById('logsContainer').innerHTML = `
+                    <div class="error-message">
+                        <strong>Error loading logs:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('levelFilter').value = '';
+            document.getElementById('sourceFilter').value = '';
+            document.getElementById('symbolFilter').value = '';
+            document.getElementById('limitFilter').value = '100';
+            loadLogs();
+        }
+
+        function toggleAutoRefresh() {
+            const enabled = document.getElementById('autoRefresh').checked;
+            
+            if (enabled) {
+                autoRefreshInterval = setInterval(() => {
+                    loadLogs();
+                    loadStats();
+                }, 10000); // 10 seconds
+            } else {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        }
+
+        // Initial load
+        loadStats();
+        loadLogs();
+    </script>
+</body>
+</html>

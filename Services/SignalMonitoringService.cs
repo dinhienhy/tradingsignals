@@ -12,16 +12,19 @@ public class SignalMonitoringService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SignalMonitoringService> _logger;
     private readonly MetaApiService _metaApiService;
+    private readonly ServiceLogger _serviceLogger;
     private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
     
     public SignalMonitoringService(
         IServiceProvider serviceProvider,
         ILogger<SignalMonitoringService> logger,
-        MetaApiService metaApiService)
+        MetaApiService metaApiService,
+        ServiceLogger serviceLogger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _metaApiService = metaApiService;
+        _serviceLogger = serviceLogger;
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -51,10 +54,14 @@ public class SignalMonitoringService : BackgroundService
     
     private async Task ProcessSignalsAsync()
     {
+        var cycleStart = DateTime.UtcNow;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         
         _logger.LogInformation("Starting signal processing cycle...");
+        await _serviceLogger.InfoAsync("SignalMonitoring", "CycleStart", "Starting new processing cycle");
         
         // Get all active signals that are not resolved
         // Use ResolvedAsInt because Resolved is NotMapped
@@ -65,9 +72,15 @@ public class SignalMonitoringService : BackgroundService
             .ToListAsync();
         
         _logger.LogInformation("Found {Count} active unresolved signals", activeSignals.Count);
+        await _serviceLogger.InfoAsync("SignalMonitoring", "QuerySignals", 
+            $"Found {activeSignals.Count} active unresolved signals",
+            data: new { Count = activeSignals.Count, QueryTimeMs = stopwatch.ElapsedMilliseconds });
         
         if (activeSignals.Count == 0)
         {
+            await _serviceLogger.DebugAsync("SignalMonitoring", "CycleComplete", 
+                "No signals to process", 
+                executionTimeMs: (int)stopwatch.ElapsedMilliseconds);
             return;
         }
         
@@ -101,10 +114,19 @@ public class SignalMonitoringService : BackgroundService
             await context.SaveChangesAsync();
             _logger.LogInformation("Processing complete. Resolved: {Resolved}, Updated: {Updated}", 
                 resolvedCount, updatedCount);
+            
+            stopwatch.Stop();
+            await _serviceLogger.InfoAsync("SignalMonitoring", "CycleComplete", 
+                $"Processing complete. Resolved: {resolvedCount}, Updated: {updatedCount}",
+                data: new { Resolved = resolvedCount, Updated = updatedCount, TotalTimeMs = stopwatch.ElapsedMilliseconds });
         }
         else
         {
             _logger.LogInformation("Processing complete. No changes needed.");
+            stopwatch.Stop();
+            await _serviceLogger.DebugAsync("SignalMonitoring", "CycleComplete", 
+                "Processing complete. No changes needed.",
+                executionTimeMs: (int)stopwatch.ElapsedMilliseconds);
         }
     }
     
@@ -166,10 +188,21 @@ public class SignalMonitoringService : BackgroundService
             
             // Rule 3: Check price against BOS Swing (NEW LOGIC)
             // Get current price from MetaApi
+            var priceStart = System.Diagnostics.Stopwatch.StartNew();
             var currentPrice = await _metaApiService.GetCurrentPriceAsync(symbol);
+            priceStart.Stop();
             
             if (currentPrice != null)
             {
+                await _serviceLogger.DebugAsync("MetaApi", "FetchPrice", 
+                    $"Price fetched for {symbol}: Bid={currentPrice.Bid}, Ask={currentPrice.Ask}, Mid={currentPrice.MidPrice}",
+                    symbol: symbol,
+                    data: new { 
+                        Bid = currentPrice.Bid, 
+                        Ask = currentPrice.Ask, 
+                        MidPrice = currentPrice.MidPrice,
+                        FetchTimeMs = priceStart.ElapsedMilliseconds 
+                    });
                 // Get all BOS signals for this symbol
                 var bosSignals = await context.ActiveTradingSignals
                     .Where(s => s.Symbol == symbol 
@@ -203,6 +236,18 @@ public class SignalMonitoringService : BackgroundService
                                 _logger.LogInformation(
                                     "CHoCH BUY {Symbol} resolved: Price {Price} broke below BOS Swing {Swing}",
                                     symbol, price, bosSwing);
+                                    
+                                await _serviceLogger.InfoAsync("CHoCH", "PriceBreakResolved", 
+                                    $"CHoCH BUY {symbol} resolved: Price {price} broke below BOS Swing {bosSwing}",
+                                    symbol: symbol,
+                                    signalType: "EntryCHoCH",
+                                    data: new { 
+                                        Action = "BUY",
+                                        CurrentPrice = price,
+                                        BOSSwing = bosSwing,
+                                        Difference = bosSwing - price,
+                                        SignalId = chochSignal.Id
+                                    });
                             }
                             // CHoCH SELL: Resolve if price goes ABOVE BOS Swing
                             else if (chochSignal.Action == "SELL" && price > bosSwing)
@@ -211,6 +256,18 @@ public class SignalMonitoringService : BackgroundService
                                 _logger.LogInformation(
                                     "CHoCH SELL {Symbol} resolved: Price {Price} broke above BOS Swing {Swing}",
                                     symbol, price, bosSwing);
+                                    
+                                await _serviceLogger.InfoAsync("CHoCH", "PriceBreakResolved", 
+                                    $"CHoCH SELL {symbol} resolved: Price {price} broke above BOS Swing {bosSwing}",
+                                    symbol: symbol,
+                                    signalType: "EntryCHoCH",
+                                    data: new { 
+                                        Action = "SELL",
+                                        CurrentPrice = price,
+                                        BOSSwing = bosSwing,
+                                        Difference = price - bosSwing,
+                                        SignalId = chochSignal.Id
+                                    });
                             }
                             
                             if (shouldResolve)
@@ -225,6 +282,10 @@ public class SignalMonitoringService : BackgroundService
             else
             {
                 _logger.LogWarning("Could not get current price for {Symbol}, skipping price check", symbol);
+                await _serviceLogger.WarningAsync("MetaApi", "FetchPriceFailed", 
+                    $"Could not get current price for {symbol}, skipping price check",
+                    symbol: symbol,
+                    data: new { FetchTimeMs = priceStart.ElapsedMilliseconds });
             }
         }
         

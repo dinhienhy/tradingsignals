@@ -87,6 +87,7 @@ builder.Services.AddHttpClient();
 
 // Register Services
 builder.Services.AddSingleton<TradingSignalsApi.Services.MetaApiService>();
+builder.Services.AddSingleton<TradingSignalsApi.Services.ServiceLogger>();
 
 // Register Background Services
 // Signal Monitoring Service runs every 1 minute to process and auto-resolve signals
