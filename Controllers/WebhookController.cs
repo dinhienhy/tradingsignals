@@ -63,45 +63,72 @@ namespace TradingSignalsApi.Controllers
                     return Unauthorized("Invalid secret");
                 }
 
-                // Extract trading signal data
-                var signal = new TradingSignal
-                {
-                    Status = SignalStatus.Pending,
-                    Timestamp = DateTime.UtcNow
-                };
-
                 // Try to extract required fields
                 if (!TryExtractField(payload.RootElement, "symbol", out var symbol) ||
                     !TryExtractField(payload.RootElement, "action", out var action) ||
                     !TryExtractDecimal(payload.RootElement, "price", out var price))
                 {
+                    _logger.LogWarning("Missing required fields in webhook payload for path: {Path}", path);
                     return BadRequest("Required fields missing or invalid: symbol, action, price");
                 }
 
-                signal.Symbol = symbol;
-                signal.Action = action;
-                signal.Price = price;
-
-                // Optional field
-                if (payload.RootElement.TryGetProperty("message", out var messageElement) && 
-                    messageElement.ValueKind == JsonValueKind.String)
+                // Extract timestamp - use provided timestamp or current UTC time
+                DateTime signalTimestamp = DateTime.UtcNow;
+                if (payload.RootElement.TryGetProperty("timestamp", out var timestampElement))
                 {
-                    signal.Message = messageElement.GetString();
+                    // Try multiple formats
+                    if (timestampElement.ValueKind == JsonValueKind.String)
+                    {
+                        var timestampStr = timestampElement.GetString();
+                        if (DateTime.TryParse(timestampStr, out var parsedTimestamp))
+                        {
+                            signalTimestamp = parsedTimestamp.ToUniversalTime();
+                            _logger.LogInformation("Using provided timestamp: {Timestamp}", signalTimestamp);
+                        }
+                        else if (long.TryParse(timestampStr, out var unixTimestamp))
+                        {
+                            signalTimestamp = DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).UtcDateTime;
+                            _logger.LogInformation("Parsed Unix timestamp: {Timestamp}", signalTimestamp);
+                        }
+                    }
+                    else if (timestampElement.ValueKind == JsonValueKind.Number && timestampElement.TryGetInt64(out var unixTs))
+                    {
+                        signalTimestamp = DateTimeOffset.FromUnixTimeSeconds(unixTs).UtcDateTime;
+                        _logger.LogInformation("Parsed Unix timestamp: {Timestamp}", signalTimestamp);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("No timestamp provided, using current UTC time: {Timestamp}", signalTimestamp);
                 }
 
-                // Try to extract timestamp if provided
-                if (payload.RootElement.TryGetProperty("timestamp", out var timestampElement) &&
-                    timestampElement.ValueKind == JsonValueKind.String &&
-                    DateTime.TryParse(timestampElement.GetString(), out var timestamp))
-                {
-                    signal.Timestamp = timestamp;
-                }
-
-                // Try to extract swing price if provided (optional field)
+                // Extract swing price if provided
                 decimal? swingPrice = null;
                 if (TryExtractDecimal(payload.RootElement, "swing", out var swing))
                 {
                     swingPrice = swing;
+                    _logger.LogInformation("Swing price extracted: {Swing} for {Symbol}", swing, symbol);
+                }
+                else
+                {
+                    _logger.LogDebug("No swing price provided for {Symbol}", symbol);
+                }
+
+                // Extract trading signal data
+                var signal = new TradingSignal
+                {
+                    Symbol = symbol,
+                    Action = action,
+                    Price = price,
+                    Status = SignalStatus.Pending,
+                    Timestamp = signalTimestamp
+                };
+
+                // Optional message field
+                if (payload.RootElement.TryGetProperty("message", out var messageElement) && 
+                    messageElement.ValueKind == JsonValueKind.String)
+                {
+                    signal.Message = messageElement.GetString();
                 }
 
                 // Save trading signal to history first
@@ -121,13 +148,14 @@ namespace TradingSignalsApi.Controllers
                     // Update existing record
                     existingActiveSignal.Action = signal.Action;
                     existingActiveSignal.Price = signal.Price;
-                    existingActiveSignal.Timestamp = signal.Timestamp;
+                    existingActiveSignal.Timestamp = signalTimestamp;
                     existingActiveSignal.Swing = swingPrice;
-                    existingActiveSignal.Used = false; // Đặt lại trạng thái Used về false khi có tín hiệu mới
-                    existingActiveSignal.Resolved = false; // Đặt lại trạng thái Resolved về false khi có tín hiệu mới
+                    existingActiveSignal.Used = false; // Reset Used to false for new signal
+                    existingActiveSignal.Resolved = false; // Reset Resolved to false for new signal
                     
                     activeSignal = existingActiveSignal;
-                    _logger.LogInformation("Updated existing active signal for {Symbol}/{Type}", signal.Symbol, path);
+                    _logger.LogInformation("Updated active signal: {Symbol}/{Type} - Action={Action}, Price={Price}, Swing={Swing}, Timestamp={Timestamp}", 
+                        signal.Symbol, path, signal.Action, signal.Price, swingPrice, signalTimestamp);
                 }
                 else
                 {
@@ -137,14 +165,15 @@ namespace TradingSignalsApi.Controllers
                         Symbol = signal.Symbol,
                         Action = signal.Action,
                         Price = signal.Price,
-                        Timestamp = signal.Timestamp,
+                        Timestamp = signalTimestamp,
                         Type = path,
                         UniqueKey = uniqueKey,
                         Swing = swingPrice
                     };
                     
                     await _context.ActiveTradingSignals.AddAsync(activeSignal);
-                    _logger.LogInformation("Created new active signal for {Symbol}/{Type}", signal.Symbol, path);
+                    _logger.LogInformation("Created new active signal: {Symbol}/{Type} - Action={Action}, Price={Price}, Swing={Swing}, Timestamp={Timestamp}", 
+                        signal.Symbol, path, signal.Action, signal.Price, swingPrice, signalTimestamp);
                 }
                 
                 // Save to database
@@ -157,8 +186,12 @@ namespace TradingSignalsApi.Controllers
                 { 
                     message = "Trading signal received", 
                     signalId = signal.Id,
+                    activeSignalId = activeSignal.Id,
                     symbol = signal.Symbol,
                     action = signal.Action,
+                    price = signal.Price,
+                    swing = swingPrice,
+                    timestamp = signalTimestamp,
                     type = path
                 });
             }
