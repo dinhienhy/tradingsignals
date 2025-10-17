@@ -57,8 +57,9 @@ public class SignalMonitoringService : BackgroundService
         _logger.LogInformation("Starting signal processing cycle...");
         
         // Get all active signals that are not resolved
+        // Use ResolvedAsInt because Resolved is NotMapped
         var activeSignals = await context.ActiveTradingSignals
-            .Where(s => !s.Resolved)
+            .Where(s => s.ResolvedAsInt == 0)
             .OrderBy(s => s.Type)
             .ThenByDescending(s => s.Timestamp)
             .ToListAsync();
@@ -173,7 +174,7 @@ public class SignalMonitoringService : BackgroundService
                 var bosSignals = await context.ActiveTradingSignals
                     .Where(s => s.Symbol == symbol 
                              && s.Type != null && s.Type.ToLower() == "entrybos" 
-                             && !s.Resolved
+                             && s.ResolvedAsInt == 0
                              && s.Swing.HasValue)
                     .OrderByDescending(s => s.Timestamp)
                     .ToListAsync();
@@ -263,7 +264,7 @@ public class SignalMonitoringService : BackgroundService
             
             // Rule 2: Check for conflicting CHoCH signals
             var allSymbolSignals = await context.ActiveTradingSignals
-                .Where(s => s.Symbol == symbolGroup.Key && !s.Resolved)
+                .Where(s => s.Symbol == symbolGroup.Key && s.ResolvedAsInt == 0)
                 .ToListAsync();
             
             var chochSignals = allSymbolSignals
