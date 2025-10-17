@@ -290,7 +290,12 @@
 </head>
 <body>
     <div class="container">
-        <h1>📊 Service Logs</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h1 style="margin: 0;">📊 Service Logs</h1>
+            <a href="index.html" style="color: #38bdf8; text-decoration: none; font-size: 0.875rem;">
+                ← Back to Home
+            </a>
+        </div>
         <p class="subtitle">Real-time monitoring of background services and API activities</p>
 
         <div class="stats-grid" id="stats">
@@ -352,6 +357,7 @@
             </div>
             <button onclick="loadLogs()">Apply Filters</button>
             <button class="secondary" onclick="clearFilters()">Clear Filters</button>
+            <button class="secondary" onclick="cleanupLogs()" style="background: #b45309;">🗑️ Clean Old Logs</button>
             
             <div class="auto-refresh">
                 <label>
@@ -504,6 +510,39 @@
                     clearInterval(autoRefreshInterval);
                     autoRefreshInterval = null;
                 }
+            }
+        }
+
+        async function cleanupLogs() {
+            const daysToKeep = prompt('How many days of logs to keep?', '7');
+            
+            if (daysToKeep === null) return; // User cancelled
+            
+            const days = parseInt(daysToKeep);
+            if (isNaN(days) || days < 1) {
+                alert('Please enter a valid number of days (minimum 1)');
+                return;
+            }
+
+            if (!confirm(`This will delete all logs older than ${days} days. Continue?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/servicelogs/cleanup?daysToKeep=${days}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`✅ Successfully cleaned up ${result.deletedCount} old logs`);
+                    loadLogs();
+                    loadStats();
+                } else {
+                    alert('❌ Failed to cleanup logs: ' + response.statusText);
+                }
+            } catch (error) {
+                alert('❌ Error cleaning up logs: ' + error.message);
             }
         }
 
