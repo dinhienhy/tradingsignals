@@ -13,7 +13,7 @@ using TradingSignalsApi.Models;
 namespace TradingSignalsApi.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/active-signals")]
     public class ActiveSignalsController : ControllerBase
     {
         private readonly AppDbContext _context;
