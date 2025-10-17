@@ -1,4 +1,3 @@
-using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,18 +5,20 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace TradingSignalsApi.Migrations
 {
     /// <inheritdoc />
-    public partial class AddServiceLogs : Migration
+    public partial class FixServiceLogsTimestamp : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Drop and recreate ServiceLogs table with correct timestamp type
+            migrationBuilder.Sql("DROP TABLE IF EXISTS \"ServiceLogs\" CASCADE;");
+            
             migrationBuilder.CreateTable(
                 name: "ServiceLogs",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     Timestamp = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Level = table.Column<string>(type: "text", nullable: false),
                     Source = table.Column<string>(type: "text", nullable: false),
@@ -42,8 +43,7 @@ namespace TradingSignalsApi.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "ServiceLogs");
+            // Nothing to do - the previous migration will handle rollback
         }
     }
 }
