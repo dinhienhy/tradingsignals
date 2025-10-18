@@ -436,30 +436,100 @@ public class SignalMonitoringService : BackgroundService
                 }
             }
             
-            // Rule 2: Check for conflicting CHoCH signals
-            var allSymbolSignals = await context.ActiveTradingSignals
-                .Where(s => s.Symbol == symbolGroup.Key && s.ResolvedAsInt == 0)
+            // Rule 2: Check for CHoCH resolution and price break
+            var symbol = symbolGroup.Key;
+            
+            // Get all CHoCH signals for this symbol (both resolved and unresolved)
+            var allChochSignals = await context.ActiveTradingSignals
+                .Where(s => s.Symbol == symbol && s.Type != null && s.Type.ToLower() == "entrychoch")
+                .OrderByDescending(s => s.Timestamp)
                 .ToListAsync();
             
-            var chochSignals = allSymbolSignals
-                .Where(s => s.Type?.ToLower() == "entrychoch")
-                .OrderByDescending(s => s.Timestamp)
-                .ToList();
+            // Get current price from MetaAPI
+            var currentPrice = await _metaApiService.GetCurrentPriceAsync(symbol);
             
-            foreach (var bosSignal in symbolSignals.Where(s => !s.Resolved))
+            foreach (var bosSignal in symbolSignals.Where(s => !s.Resolved && s.Swing.HasValue))
             {
-                // Check if there's a recent opposite CHoCH
-                var oppositeAction = bosSignal.Action == "BUY" ? "SELL" : "BUY";
-                var oppositeChoch = chochSignals
-                    .Where(c => c.Action == oppositeAction && c.Timestamp > bosSignal.Timestamp.AddMinutes(-30))
-                    .FirstOrDefault();
+                bool shouldResolve = false;
+                string resolveReason = "";
                 
-                if (oppositeChoch != null)
+                // Find CHoCH signals that came AFTER this BOS
+                var subsequentChochs = allChochSignals
+                    .Where(c => c.Timestamp > bosSignal.Timestamp)
+                    .ToList();
+                
+                // Rule 2a: If any subsequent CHoCH is resolved → BOS is resolved
+                var resolvedChoch = subsequentChochs.FirstOrDefault(c => c.Resolved);
+                if (resolvedChoch != null)
+                {
+                    shouldResolve = true;
+                    resolveReason = $"Subsequent CHoCH {resolvedChoch.Action} (ID: {resolvedChoch.Id}) is resolved";
+                    
+                    await _serviceLogger.InfoAsync("BOS", "ResolvedByChoCH",
+                        $"BOS {bosSignal.Action} {symbol} resolved: Subsequent CHoCH {resolvedChoch.Action} is resolved",
+                        symbol: symbol,
+                        signalType: "EntryBOS",
+                        data: new {
+                            BOSId = bosSignal.Id,
+                            BOSAction = bosSignal.Action,
+                            BOSSwing = bosSignal.Swing,
+                            BOSTimestamp = bosSignal.Timestamp,
+                            CHoCHId = resolvedChoch.Id,
+                            CHoCHAction = resolvedChoch.Action,
+                            CHoCHTimestamp = resolvedChoch.Timestamp,
+                            CHoCHResolved = resolvedChoch.Resolved
+                        });
+                }
+                // Rule 2b: Check if price has broken BOS swing
+                else if (currentPrice != null)
+                {
+                    var price = currentPrice.MidPrice;
+                    var bosSwing = bosSignal.Swing.Value;
+                    
+                    // BOS SELL: Resolve if price goes ABOVE swing
+                    if (bosSignal.Action == "SELL" && price > bosSwing)
+                    {
+                        shouldResolve = true;
+                        resolveReason = $"Price {price} broke above BOS SELL Swing {bosSwing}";
+                        
+                        await _serviceLogger.InfoAsync("BOS", "PriceBreakResolved",
+                            $"BOS SELL {symbol} resolved: Price {price} broke above Swing {bosSwing}",
+                            symbol: symbol,
+                            signalType: "EntryBOS",
+                            data: new {
+                                BOSId = bosSignal.Id,
+                                BOSAction = "SELL",
+                                BOSSwing = bosSwing,
+                                CurrentPrice = price,
+                                Difference = price - bosSwing
+                            });
+                    }
+                    // BOS BUY: Resolve if price goes BELOW swing
+                    else if (bosSignal.Action == "BUY" && price < bosSwing)
+                    {
+                        shouldResolve = true;
+                        resolveReason = $"Price {price} broke below BOS BUY Swing {bosSwing}";
+                        
+                        await _serviceLogger.InfoAsync("BOS", "PriceBreakResolved",
+                            $"BOS BUY {symbol} resolved: Price {price} broke below Swing {bosSwing}",
+                            symbol: symbol,
+                            signalType: "EntryBOS",
+                            data: new {
+                                BOSId = bosSignal.Id,
+                                BOSAction = "BUY",
+                                BOSSwing = bosSwing,
+                                CurrentPrice = price,
+                                Difference = bosSwing - price
+                            });
+                    }
+                }
+                
+                if (shouldResolve)
                 {
                     bosSignal.Resolved = true;
                     resolvedCount++;
-                    _logger.LogInformation("Resolved BOS due to opposite CHoCH: {Symbol} {Action}", 
-                        bosSignal.Symbol, bosSignal.Action);
+                    _logger.LogInformation("Resolved BOS {Symbol} {Action}: {Reason}", 
+                        bosSignal.Symbol, bosSignal.Action, resolveReason);
                 }
             }
         }

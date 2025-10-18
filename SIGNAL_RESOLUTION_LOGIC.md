@@ -6,7 +6,9 @@ SignalMonitoringService tự động xử lý và resolve các trading signals d
 
 ---
 
-## 🔄 CHoCH (Change of Character) Resolution Rules
+## 🔄 Signal Resolution Rules
+
+### CHoCH (Change of Character) Resolution Rules
 
 ### Rule 1: Opposite Action Matching
 
@@ -49,6 +51,60 @@ Sử dụng giá trung bình (Mid Price) để so sánh với Swing levels:
 - Bid: 2651.50
 - Ask: 2651.52
 - **Mid: 2651.51** ← Dùng giá này
+
+---
+
+## 📊 BOS (Break of Structure) Resolution Rules
+
+### Rule 1: CHoCH Dependency
+
+BOS signals tự động resolve khi có CHoCH **SAU BOS** đã resolved:
+
+```
+Timeline:
+10:00 - BOS SELL (Swing: 2650.00) ← Trước
+10:05 - CHoCH BUY (Price: 2645.00) ← Sau
+10:15 - Price breaks to 2651.00 → CHoCH BUY resolved
+
+→ BOS SELL cũng tự động resolved (vì CHoCH sau nó đã resolved)
+```
+
+**Logic:**
+- Find all CHoCH signals với `Timestamp > BOS.Timestamp`
+- Nếu bất kỳ CHoCH nào đã `Resolved = true` → BOS cũng `Resolved = true`
+
+### Rule 2: Price Break Conditions
+
+Nếu không có CHoCH resolved, check price break:
+
+**Scenario 1: BOS SELL**
+```
+BOS SELL Swing: 2650.00
+Current Price: 2651.51
+
+Resolution: BOS SELL resolved khi price > 2650.00
+Ý nghĩa: Giá đã phá vỡ swing level
+```
+
+**Scenario 2: BOS BUY**
+```
+BOS BUY Swing: 2650.00
+Current Price: 2648.50
+
+Resolution: BOS BUY resolved khi price < 2650.00
+Ý nghĩa: Giá đã phá vỡ swing level
+```
+
+### Rule 3: Auto-Expire (8 Hours)
+
+BOS signals tự động resolve sau 8 giờ:
+
+```csharp
+var age = now - signal.Timestamp;
+if (age.TotalHours > 8) {
+    signal.Resolved = true;
+}
+```
 
 ---
 
@@ -114,7 +170,7 @@ CHoCH signals tự động resolve khi có CHoCH ngược chiều trong vòng 1 
 
 ## 🎯 Code Examples
 
-### Finding Opposite Action BOS
+### CHoCH: Finding Opposite Action BOS
 
 ```csharp
 // CHoCH BUY → look for BOS SELL
@@ -127,7 +183,7 @@ var relevantBOS = bosSignals
     .FirstOrDefault();
 ```
 
-### Price Break Check
+### CHoCH: Price Break Check
 
 ```csharp
 var price = currentPrice.MidPrice;
@@ -143,6 +199,41 @@ if (chochSignal.Action == "BUY" && relevantBOS.Action == "SELL" && price > bosSw
 else if (chochSignal.Action == "SELL" && relevantBOS.Action == "BUY" && price < bosSwing)
 {
     chochSignal.Resolved = true;
+}
+```
+
+### BOS: CHoCH Dependency Check
+
+```csharp
+// Get all CHoCH signals that came AFTER this BOS
+var subsequentChochs = allChochSignals
+    .Where(c => c.Timestamp > bosSignal.Timestamp)
+    .ToList();
+
+// If any subsequent CHoCH is resolved → BOS is resolved
+var resolvedChoch = subsequentChochs.FirstOrDefault(c => c.Resolved);
+if (resolvedChoch != null)
+{
+    bosSignal.Resolved = true;
+}
+```
+
+### BOS: Price Break Check
+
+```csharp
+var price = currentPrice.MidPrice;
+var bosSwing = bosSignal.Swing.Value;
+
+// BOS SELL: Resolve if price > swing
+if (bosSignal.Action == "SELL" && price > bosSwing)
+{
+    bosSignal.Resolved = true;
+}
+
+// BOS BUY: Resolve if price < swing
+else if (bosSignal.Action == "BUY" && price < bosSwing)
+{
+    bosSignal.Resolved = true;
 }
 ```
 
@@ -168,7 +259,7 @@ else if (chochSignal.Action == "SELL" && relevantBOS.Action == "BUY" && price < 
 
 ## 🔍 Logging & Debugging
 
-### Debug Logs
+### CHoCH Debug Logs
 
 ```
 [CHoCH QueryBOS] Found 2 active BOS signals for XAUUSD
@@ -185,6 +276,38 @@ else if (chochSignal.Action == "SELL" && relevantBOS.Action == "BUY" && price < 
 
 [CHoCH PriceBreakResolved] CHoCH BUY XAUUSD resolved: Price 2651.51 broke above BOS SELL Swing 2650.00
   ✅ Signal #123 resolved
+```
+
+### BOS Debug Logs
+
+```
+[BOS ProcessStart] Starting to process 3 BOS signals
+  TotalSignals: 3
+  Symbols: ["XAUUSD", "EURUSD"]
+
+[BOS ProcessSymbol] Processing 2 BOS signals for XAUUSD
+  SignalCount: 2
+  Actions: ["SELL", "SELL"]
+  Swings: [2650.00, 2648.00]
+
+[BOS ResolvedByChoCH] BOS SELL XAUUSD resolved: Subsequent CHoCH BUY is resolved
+  BOSId: 456
+  BOSAction: SELL
+  BOSSwing: 2650.00
+  BOSTimestamp: 2025-10-18T03:00:00Z
+  CHoCHId: 123
+  CHoCHAction: BUY
+  CHoCHTimestamp: 2025-10-18T03:05:00Z
+  CHoCHResolved: true
+  ✅ BOS #456 resolved by CHoCH
+
+[BOS PriceBreakResolved] BOS SELL XAUUSD resolved: Price 2651.51 broke above Swing 2650.00
+  BOSId: 457
+  BOSAction: SELL
+  BOSSwing: 2650.00
+  CurrentPrice: 2651.51
+  Difference: 1.51
+  ✅ BOS #457 resolved by price break
 ```
 
 ### ServiceLogs Table
