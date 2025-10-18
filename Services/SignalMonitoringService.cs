@@ -227,12 +227,14 @@ public class SignalMonitoringService : BackgroundService
             if (currentPrice != null)
             {
                 await _serviceLogger.DebugAsync("MetaApi", "FetchPrice", 
-                    $"Price fetched for {symbol}: Bid={currentPrice.Bid}, Ask={currentPrice.Ask}, Mid={currentPrice.MidPrice}",
+                    $"Price fetched for {symbol}: Bid={currentPrice.Bid}, Ask={currentPrice.Ask}, Mid={currentPrice.MidPrice}, UTC={currentPrice.Time:yyyy-MM-dd HH:mm:ss}, BrokerTime={currentPrice.BrokerTime ?? "N/A"}",
                     symbol: symbol,
                     data: new { 
                         Bid = currentPrice.Bid, 
                         Ask = currentPrice.Ask, 
                         MidPrice = currentPrice.MidPrice,
+                        TimeUTC = currentPrice.Time,
+                        BrokerTime = currentPrice.BrokerTime,
                         FetchTimeMs = priceStart.ElapsedMilliseconds 
                     });
                 // Get all BOS signals for this symbol

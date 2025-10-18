@@ -49,6 +49,15 @@ Stored in DB: 2025-10-18 03:30:00+00
 ### 3. **MetaAPI Price Time**
 **Location:** `MetaApiService.cs`
 
+**MetaAPI returns 2 time fields:**
+```json
+{
+  "time": "2020-04-07T03:45:23.345Z",     // UTC time with 'Z'
+  "brokerTime": "2020-04-07 06:45:23.345" // Broker local time (string)
+}
+```
+
+**Code handling:**
 ```csharp
 // Line 72-80: Ensure MetaAPI Time is UTC
 DateTime priceTime = DateTime.UtcNow;
@@ -59,9 +68,19 @@ if (priceData.Time.HasValue) {
         ? DateTime.SpecifyKind(priceData.Time.Value, DateTimeKind.Utc)
         : priceData.Time.Value.ToUniversalTime();
 }
+
+// BrokerTime is stored for reference/logging only
+price.BrokerTime = priceData.BrokerTime;
 ```
 
-**Result:** `priceTime` is always UTC
+**Result:** 
+- `priceTime` is always UTC (used for calculations)
+- `BrokerTime` is stored for reference (shows broker's local timezone)
+
+**Example:** If broker is GMT+3:
+- `time`: "2020-04-07T03:45:23.345Z" (UTC)
+- `brokerTime`: "2020-04-07 06:45:23.345" (GMT+3)
+- Time difference: 3 hours
 
 ---
 
@@ -175,6 +194,34 @@ $payload = @{
 
 ---
 
+## 🌍 Broker Timezone Detection
+
+MetaAPI provides both UTC and broker local time, allowing us to determine broker timezone:
+
+### Automatic Detection
+```
+UTC Time:    "2020-04-07T03:45:23.345Z"
+Broker Time: "2020-04-07 06:45:23.345"
+Difference:  +3 hours → Broker is GMT+3
+```
+
+### Common Broker Timezones
+- **GMT+2/+3:** European brokers (Cyprus, Russia)
+- **GMT+0:** London brokers
+- **GMT-5:** New York brokers  
+- **GMT+8:** Singapore/Hong Kong brokers
+
+### Verification in Logs
+Check ServiceLogs for MetaAPI fetch:
+```
+Price fetched for XAUUSD: 
+  UTC=2025-10-18 03:30:00
+  BrokerTime=2025-10-18 06:30:00 
+  → Broker is GMT+3
+```
+
+---
+
 ## 🐛 Common Issues & Solutions
 
 ### Issue 1: Time calculations are wrong
@@ -188,6 +235,10 @@ $payload = @{
 ### Issue 3: MetaAPI time doesn't match signal time
 **Cause:** Unspecified `DateTimeKind` from JSON deserialize
 **Solution:** Use `DateTime.SpecifyKind()` in `MetaApiService.cs`
+
+### Issue 4: Broker time seems wrong
+**Cause:** Broker timezone differs from expected
+**Solution:** Check MetaAPI logs for actual broker timezone. BrokerTime is for reference only - always use UTC for calculations
 
 ---
 

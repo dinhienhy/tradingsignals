@@ -84,10 +84,12 @@ public class MetaApiService
                 Symbol = priceData.Symbol ?? symbol,
                 Bid = priceData.Bid,
                 Ask = priceData.Ask,
-                Time = priceTime
+                Time = priceTime,
+                BrokerTime = priceData.BrokerTime
             };
             
-            _logger.LogDebug("Price for {Symbol}: Bid={Bid}, Ask={Ask}", symbol, price.Bid, price.Ask);
+            _logger.LogDebug("Price for {Symbol}: Bid={Bid}, Ask={Ask}, UTC={Time}, BrokerTime={BrokerTime}", 
+                symbol, price.Bid, price.Ask, price.Time, price.BrokerTime ?? "N/A");
             
             return price;
         }
@@ -140,9 +142,18 @@ public class MetaApiPriceResponse
     [JsonPropertyName("ask")]
     public decimal Ask { get; set; }
     
+    /// <summary>
+    /// Price quote time in UTC (ISO 8601 format with 'Z' suffix)
+    /// Example: "2020-04-07T03:45:23.345Z"
+    /// </summary>
     [JsonPropertyName("time")]
     public DateTime? Time { get; set; }
     
+    /// <summary>
+    /// Price quote time in broker's local timezone (string format, no timezone info)
+    /// Example: "2020-04-07 06:45:23.345" (if broker is GMT+3)
+    /// Note: This is for reference only. Always use 'Time' (UTC) for calculations.
+    /// </summary>
     [JsonPropertyName("brokerTime")]
     public string? BrokerTime { get; set; }
 }
@@ -155,7 +166,16 @@ public class SymbolPrice
     public string Symbol { get; set; } = string.Empty;
     public decimal Bid { get; set; }
     public decimal Ask { get; set; }
+    
+    /// <summary>
+    /// Price time in UTC (always use this for calculations)
+    /// </summary>
     public DateTime Time { get; set; }
+    
+    /// <summary>
+    /// Price time in broker's local timezone (for reference/logging only)
+    /// </summary>
+    public string? BrokerTime { get; set; }
     
     /// <summary>
     /// Get mid price (average of bid and ask)
