@@ -256,12 +256,17 @@ public class SignalMonitoringService : BackgroundService
                 
                 if (bosSignals.Any())
                 {
-                    // Check each CHoCH signal against BOS swings
+                    // Check each CHoCH signal against BOS swings (only unresolved CHoCH)
                     foreach (var chochSignal in symbolSignals.Where(s => !s.Resolved))
                     {
-                        // Find BOS signals that came BEFORE this CHoCH
+                        // Find BOS signals with OPPOSITE action that came BEFORE this CHoCH
+                        // CHoCH BUY → look for BOS SELL
+                        // CHoCH SELL → look for BOS BUY
+                        string oppositeAction = chochSignal.Action == "BUY" ? "SELL" : "BUY";
+                        
                         var relevantBOS = bosSignals
-                            .Where(b => b.Timestamp < chochSignal.Timestamp)
+                            .Where(b => b.Timestamp < chochSignal.Timestamp 
+                                     && b.Action == oppositeAction)
                             .FirstOrDefault();
                         
                         if (relevantBOS != null && relevantBOS.Swing.HasValue)
@@ -270,7 +275,7 @@ public class SignalMonitoringService : BackgroundService
                             var bosSwing = relevantBOS.Swing.Value;
                             
                             await _serviceLogger.DebugAsync("CHoCH", "CheckPrice", 
-                                $"Checking CHoCH {chochSignal.Action} {symbol}: Price={price} vs BOS Swing={bosSwing}",
+                                $"Checking CHoCH {chochSignal.Action} {symbol}: Price={price} vs BOS {relevantBOS.Action} Swing={bosSwing}",
                                 symbol: symbol,
                                 signalType: "EntryCHoCH",
                                 data: new {
@@ -278,6 +283,7 @@ public class SignalMonitoringService : BackgroundService
                                     CHoCHAction = chochSignal.Action,
                                     CHoCHTimestamp = chochSignal.Timestamp,
                                     CurrentPrice = price,
+                                    BOSAction = relevantBOS.Action,
                                     BOSSwing = bosSwing,
                                     BOSId = relevantBOS.Id,
                                     BOSTimestamp = relevantBOS.Timestamp,
@@ -286,43 +292,45 @@ public class SignalMonitoringService : BackgroundService
                             
                             bool shouldResolve = false;
                             
-                            // CHoCH BUY: Resolve if price goes BELOW BOS Swing
-                            if (chochSignal.Action == "BUY" && price < bosSwing)
+                            // CHoCH BUY + BOS SELL: Resolve if price goes ABOVE BOS SELL Swing
+                            if (chochSignal.Action == "BUY" && relevantBOS.Action == "SELL" && price > bosSwing)
                             {
                                 shouldResolve = true;
                                 _logger.LogInformation(
-                                    "CHoCH BUY {Symbol} resolved: Price {Price} broke below BOS Swing {Swing}",
+                                    "CHoCH BUY {Symbol} resolved: Price {Price} broke above BOS SELL Swing {Swing}",
                                     symbol, price, bosSwing);
                                     
                                 await _serviceLogger.InfoAsync("CHoCH", "PriceBreakResolved", 
-                                    $"CHoCH BUY {symbol} resolved: Price {price} broke below BOS Swing {bosSwing}",
+                                    $"CHoCH BUY {symbol} resolved: Price {price} broke above BOS SELL Swing {bosSwing}",
                                     symbol: symbol,
                                     signalType: "EntryCHoCH",
                                     data: new { 
-                                        Action = "BUY",
-                                        CurrentPrice = price,
-                                        BOSSwing = bosSwing,
-                                        Difference = bosSwing - price,
-                                        SignalId = chochSignal.Id
-                                    });
-                            }
-                            // CHoCH SELL: Resolve if price goes ABOVE BOS Swing
-                            else if (chochSignal.Action == "SELL" && price > bosSwing)
-                            {
-                                shouldResolve = true;
-                                _logger.LogInformation(
-                                    "CHoCH SELL {Symbol} resolved: Price {Price} broke above BOS Swing {Swing}",
-                                    symbol, price, bosSwing);
-                                    
-                                await _serviceLogger.InfoAsync("CHoCH", "PriceBreakResolved", 
-                                    $"CHoCH SELL {symbol} resolved: Price {price} broke above BOS Swing {bosSwing}",
-                                    symbol: symbol,
-                                    signalType: "EntryCHoCH",
-                                    data: new { 
-                                        Action = "SELL",
+                                        CHoCHAction = "BUY",
+                                        BOSAction = "SELL",
                                         CurrentPrice = price,
                                         BOSSwing = bosSwing,
                                         Difference = price - bosSwing,
+                                        SignalId = chochSignal.Id
+                                    });
+                            }
+                            // CHoCH SELL + BOS BUY: Resolve if price goes BELOW BOS BUY Swing
+                            else if (chochSignal.Action == "SELL" && relevantBOS.Action == "BUY" && price < bosSwing)
+                            {
+                                shouldResolve = true;
+                                _logger.LogInformation(
+                                    "CHoCH SELL {Symbol} resolved: Price {Price} broke below BOS BUY Swing {Swing}",
+                                    symbol, price, bosSwing);
+                                    
+                                await _serviceLogger.InfoAsync("CHoCH", "PriceBreakResolved", 
+                                    $"CHoCH SELL {symbol} resolved: Price {price} broke below BOS BUY Swing {bosSwing}",
+                                    symbol: symbol,
+                                    signalType: "EntryCHoCH",
+                                    data: new { 
+                                        CHoCHAction = "SELL",
+                                        BOSAction = "BUY",
+                                        CurrentPrice = price,
+                                        BOSSwing = bosSwing,
+                                        Difference = bosSwing - price,
                                         SignalId = chochSignal.Id
                                     });
                             }
