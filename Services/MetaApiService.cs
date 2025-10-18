@@ -44,7 +44,8 @@ public class MetaApiService
             var client = _httpClientFactory.CreateClient();
             client.DefaultRequestHeaders.Add("auth-token", _apiToken);
             
-            var url = $"https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/{_accountId}/symbols/{symbol}/current-price";
+            // Use London region for MetaAPI (correct URL format)
+            var url = $"https://mt-client-api-v1.london.agiliumtrade.ai/users/current/accounts/{_accountId}/symbols/{symbol}/current-price";
             
             _logger.LogDebug("Fetching price for {Symbol} from MetaApi", symbol);
             
