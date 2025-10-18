@@ -15,6 +15,10 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    
+    // Ensure DateTime serialization always uses UTC format with 'Z' suffix
+    // This ensures consistency between database (UTC), API response (UTC ISO 8601), and frontend (converts to GMT+7)
+    options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
 // Configure Database (PostgreSQL for Heroku, SQLite for local)

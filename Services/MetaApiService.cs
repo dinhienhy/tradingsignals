@@ -69,12 +69,22 @@ public class MetaApiService
                 return null;
             }
             
+            // Ensure Time is UTC
+            DateTime priceTime = DateTime.UtcNow;
+            if (priceData.Time.HasValue)
+            {
+                // If Time has no timezone info, assume it's UTC
+                priceTime = priceData.Time.Value.Kind == DateTimeKind.Unspecified 
+                    ? DateTime.SpecifyKind(priceData.Time.Value, DateTimeKind.Utc)
+                    : priceData.Time.Value.ToUniversalTime();
+            }
+            
             var price = new SymbolPrice
             {
                 Symbol = priceData.Symbol ?? symbol,
                 Bid = priceData.Bid,
                 Ask = priceData.Ask,
-                Time = priceData.Time ?? DateTime.UtcNow
+                Time = priceTime
             };
             
             _logger.LogDebug("Price for {Symbol}: Bid={Bid}, Ask={Ask}", symbol, price.Bid, price.Ask);
