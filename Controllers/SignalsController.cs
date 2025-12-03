@@ -69,10 +69,22 @@ namespace TradingSignalsApi.Controllers
 
             // Order by timestamp, newest first
             var signals = await query.OrderByDescending(s => s.Timestamp).ToListAsync();
+            
+            // Map to DTO with UTC timestamp
+            var result = signals.Select(s => new
+            {
+                id = s.Id,
+                symbol = s.Symbol,
+                action = s.Action,
+                price = s.Price,
+                timestamp = DateTime.SpecifyKind(s.Timestamp, DateTimeKind.Utc),
+                message = s.Message,
+                status = (int)s.Status
+            }).ToList();
 
             _logger.LogInformation("Returning {Count} signals with filter: {Status}", signals.Count, status);
 
-            return Ok(signals);
+            return Ok(result);
         }
         
         /// <summary>
@@ -118,7 +130,19 @@ namespace TradingSignalsApi.Controllers
             await _context.SaveChangesAsync();
             _logger.LogInformation("Marked {Count} signals as processed", pendingSignals.Count);
 
-            return Ok(pendingSignals);
+            // Map to DTO with UTC timestamp
+            var result = pendingSignals.Select(s => new
+            {
+                id = s.Id,
+                symbol = s.Symbol,
+                action = s.Action,
+                price = s.Price,
+                timestamp = DateTime.SpecifyKind(s.Timestamp, DateTimeKind.Utc),
+                message = s.Message,
+                status = (int)s.Status
+            }).ToList();
+
+            return Ok(result);
         }
 
         /// <summary>
