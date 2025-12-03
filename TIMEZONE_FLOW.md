@@ -121,31 +121,51 @@ options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 ---
 
 ### 6. **Frontend Display (GMT+7)**
-**Location:** `wwwroot/js/site.js`
+**Location:** `wwwroot/js/site.js` and `wwwroot/logs.html`
 
 ```javascript
-// Line 72-87: Format timestamp to GMT+7
+// Improved formatTimestampGMT7 with fallback mechanism
 function formatTimestampGMT7(timestamp) {
-    const date = new Date(timestamp);  // Parse ISO 8601 UTC string
+    const date = new Date(timestamp);
     
-    return date.toLocaleString('vi-VN', {
-        timeZone: 'Asia/Bangkok',  // GMT+7 (Indochina Time)
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
+    // Method 1: Using Intl.DateTimeFormat (more reliable)
+    try {
+        const formatter = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Bangkok',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        return formatter.format(date);
+    } catch (e) {
+        // Fallback: Manual calculation (UTC + 7 hours)
+        const utcTime = date.getTime();
+        const gmt7Time = new Date(utcTime + (7 * 60 * 60 * 1000));
+        
+        const year = gmt7Time.getUTCFullYear();
+        const month = String(gmt7Time.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(gmt7Time.getUTCDate()).padStart(2, '0');
+        const hours = String(gmt7Time.getUTCHours()).padStart(2, '0');
+        const minutes = String(gmt7Time.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(gmt7Time.getUTCSeconds()).padStart(2, '0');
+        
+        return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
+    }
 }
 ```
 
 **Example Conversion:**
 ```
-API returns:  "2025-10-18T03:30:00Z"  (UTC)
-Display:      "18/10/2025, 10:30:00"  (GMT+7)
+API returns:  "2025-12-03T08:00:00Z"  (UTC - 8:00 AM)
+Display:      "03/12/2025, 15:00:00"  (GMT+7 - 3:00 PM)
 ```
+
+**Testing:**
+Use the test page at `/test-timezone.html` to verify timezone conversion is working correctly.
 
 ---
 

@@ -70,20 +70,36 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Helper function to format timestamps to GMT+7
     function formatTimestampGMT7(timestamp) {
-        // Create a date from the timestamp
+        // Create a date from the UTC timestamp
         const date = new Date(timestamp);
         
-        // Format to GMT+7 (Vietnam/Thailand timezone - Indochina Time)
-        return date.toLocaleString('vi-VN', {
-            timeZone: 'Asia/Bangkok',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-        });
+        // Method 1: Using Intl.DateTimeFormat (more reliable)
+        try {
+            const formatter = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Asia/Bangkok',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            return formatter.format(date);
+        } catch (e) {
+            // Fallback: Manual calculation (UTC + 7 hours)
+            const utcTime = date.getTime();
+            const gmt7Time = new Date(utcTime + (7 * 60 * 60 * 1000));
+            
+            const year = gmt7Time.getUTCFullYear();
+            const month = String(gmt7Time.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(gmt7Time.getUTCDate()).padStart(2, '0');
+            const hours = String(gmt7Time.getUTCHours()).padStart(2, '0');
+            const minutes = String(gmt7Time.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(gmt7Time.getUTCSeconds()).padStart(2, '0');
+            
+            return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
+        }
     }
     
     // Functions

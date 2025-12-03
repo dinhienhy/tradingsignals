@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timezone Test - UTC to GMT+7</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .result {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 10px;
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        .label {
+            font-weight: bold;
+            color: #555;
+        }
+        .value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🕐 Timezone Conversion Test</h1>
+        <p class="subtitle">Test UTC to GMT+7 (Asia/Bangkok) conversion</p>
+
+        <div class="test-section">
+            <h3>Test 1: Current Time</h3>
+            <div id="currentTimeTest"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 2: Sample API Response (UTC)</h3>
+            <div id="sampleApiTest"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 3: Manual Verification</h3>
+            <div>
+                <input type="datetime-local" id="manualInput" style="padding: 8px; font-size: 14px;">
+                <button onclick="testManualInput()">Test This Time</button>
+            </div>
+            <div id="manualTestResult" style="margin-top: 15px;"></div>
+        </div>
+
+        <div class="note">
+            <strong>📝 How to verify:</strong><br>
+            - Current UTC time should be 7 hours behind GMT+7<br>
+            - For example: UTC 08:00 → GMT+7 15:00<br>
+            - Check with: <a href="https://www.timeanddate.com/worldclock/timezone/utc" target="_blank">World Clock</a>
+        </div>
+    </div>
+
+    <script>
+        // Same function as in site.js
+        function formatTimestampGMT7(timestamp) {
+            const date = new Date(timestamp);
+            
+            try {
+                const formatter = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: 'Asia/Bangkok',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                });
+                return formatter.format(date);
+            } catch (e) {
+                // Fallback: Manual calculation (UTC + 7 hours)
+                const utcTime = date.getTime();
+                const gmt7Time = new Date(utcTime + (7 * 60 * 60 * 1000));
+                
+                const year = gmt7Time.getUTCFullYear();
+                const month = String(gmt7Time.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(gmt7Time.getUTCDate()).padStart(2, '0');
+                const hours = String(gmt7Time.getUTCHours()).padStart(2, '0');
+                const minutes = String(gmt7Time.getUTCMinutes()).padStart(2, '0');
+                const seconds = String(gmt7Time.getUTCSeconds()).padStart(2, '0');
+                
+                return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
+            }
+        }
+
+        function formatUTC(date) {
+            return date.toISOString();
+        }
+
+        function runTests() {
+            // Test 1: Current Time
+            const now = new Date();
+            const currentTimeHtml = `
+                <div class="result">
+                    <div class="label">System Time:</div>
+                    <div class="value">${now.toString()}</div>
+                </div>
+                <div class="result">
+                    <div class="label">UTC (ISO):</div>
+                    <div class="value">${formatUTC(now)}</div>
+                </div>
+                <div class="result">
+                    <div class="label">GMT+7 Display:</div>
+                    <div class="value success">${formatTimestampGMT7(now)}</div>
+                </div>
+                <div class="result">
+                    <div class="label">Expected Diff:</div>
+                    <div class="value">+7 hours from UTC</div>
+                </div>
+            `;
+            document.getElementById('currentTimeTest').innerHTML = currentTimeHtml;
+
+            // Test 2: Sample API Response
+            const sampleTimestamp = "2025-12-03T08:00:00Z"; // 8:00 AM UTC
+            const sampleDate = new Date(sampleTimestamp);
+            const sampleHtml = `
+                <div class="result">
+                    <div class="label">API Response:</div>
+                    <div class="value">${sampleTimestamp}</div>
+                </div>
+                <div class="result">
+                    <div class="label">Parsed Date:</div>
+                    <div class="value">${sampleDate.toString()}</div>
+                </div>
+                <div class="result">
+                    <div class="label">GMT+7 Display:</div>
+                    <div class="value success">${formatTimestampGMT7(sampleTimestamp)}</div>
+                </div>
+                <div class="result">
+                    <div class="label">Expected:</div>
+                    <div class="value">03/12/2025, 15:00:00 (3:00 PM)</div>
+                </div>
+            `;
+            document.getElementById('sampleApiTest').innerHTML = sampleHtml;
+        }
+
+        function testManualInput() {
+            const input = document.getElementById('manualInput').value;
+            if (!input) {
+                document.getElementById('manualTestResult').innerHTML = '<p class="error">Please select a date and time</p>';
+                return;
+            }
+
+            // Create a UTC date from the input
+            const utcTimestamp = input + ':00Z'; // Assume UTC
+            const date = new Date(utcTimestamp);
+            
+            const resultHtml = `
+                <div class="result">
+                    <div class="label">Input (as UTC):</div>
+                    <div class="value">${utcTimestamp}</div>
+                </div>
+                <div class="result">
+                    <div class="label">GMT+7 Display:</div>
+                    <div class="value success">${formatTimestampGMT7(date)}</div>
+                </div>
+            `;
+            document.getElementById('manualTestResult').innerHTML = resultHtml;
+        }
+
+        // Run tests on load and every 5 seconds
+        runTests();
+        setInterval(runTests, 5000);
+    </script>
+</body>
+</html>
