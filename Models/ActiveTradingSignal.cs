@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace TradingSignalsApi.Models
 {
@@ -16,7 +17,14 @@ namespace TradingSignalsApi.Models
         
         public decimal Price { get; set; }
         
-        public DateTime Timestamp { get; set; }
+        private DateTime _timestamp;
+        
+        [JsonPropertyName("timestamp")]
+        public DateTime Timestamp 
+        { 
+            get => _timestamp;
+            set => _timestamp = DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        }
         
         // The Path/Type from the webhook URL
         public string Type { get; set; }

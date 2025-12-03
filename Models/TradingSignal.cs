@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace TradingSignalsApi.Models
 {
@@ -38,7 +39,14 @@ namespace TradingSignalsApi.Models
         /// Timestamp when the signal was created
         /// </summary>
         [Required]
-        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        private DateTime _timestamp = DateTime.UtcNow;
+        
+        [JsonPropertyName("timestamp")]
+        public DateTime Timestamp 
+        { 
+            get => _timestamp;
+            set => _timestamp = DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        }
 
         /// <summary>
         /// Additional message or information about the signal
