@@ -95,7 +95,8 @@ builder.Services.AddSingleton<TradingSignalsApi.Services.ServiceLogger>();
 
 // Register Background Services
 // Signal Monitoring Service runs every 1 minute to process and auto-resolve signals
-builder.Services.AddHostedService<TradingSignalsApi.Services.SignalMonitoringService>();
+// DISABLED: Replaced by standalone WinForms monitoring application
+// builder.Services.AddHostedService<TradingSignalsApi.Services.SignalMonitoringService>();
 
 var app = builder.Build();
 

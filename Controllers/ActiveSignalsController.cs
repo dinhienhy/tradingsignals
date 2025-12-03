@@ -207,5 +207,132 @@ namespace TradingSignalsApi.Controllers
             _logger.LogInformation("Retrieved {Count} unused active signals", activeSignals.Count);
             return Ok(result);
         }
+
+        /// <summary>
+        /// Mark an active signal as resolved
+        /// </summary>
+        [HttpPut("resolve/{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult> ResolveSignal(int id)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? Environment.GetEnvironmentVariable("API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to resolve signal {Id}", id);
+                return Unauthorized("Invalid API key");
+            }
+
+            var signal = await _context.ActiveTradingSignals.FindAsync(id);
+            
+            if (signal == null)
+            {
+                _logger.LogWarning("Signal {Id} not found", id);
+                return NotFound($"Signal with ID {id} not found");
+            }
+
+            signal.Resolved = true;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Signal {Id} marked as resolved", id);
+            
+            return Ok(new { 
+                id = signal.Id, 
+                resolved = signal.Resolved,
+                message = "Signal marked as resolved successfully"
+            });
+        }
+
+        /// <summary>
+        /// Update swing value for an active signal
+        /// </summary>
+        [HttpPut("swing/{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult> UpdateSwing(int id, [FromBody] SwingUpdateRequest request)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? Environment.GetEnvironmentVariable("API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to update swing for signal {Id}", id);
+                return Unauthorized("Invalid API key");
+            }
+
+            if (request == null || request.Swing <= 0)
+            {
+                return BadRequest("Invalid swing value");
+            }
+
+            var signal = await _context.ActiveTradingSignals.FindAsync(id);
+            
+            if (signal == null)
+            {
+                _logger.LogWarning("Signal {Id} not found", id);
+                return NotFound($"Signal with ID {id} not found");
+            }
+
+            signal.Swing = request.Swing;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Signal {Id} swing updated to {Swing}", id, request.Swing);
+            
+            return Ok(new { 
+                id = signal.Id, 
+                swing = signal.Swing,
+                message = "Swing value updated successfully"
+            });
+        }
+
+        /// <summary>
+        /// Delete an active signal
+        /// </summary>
+        [HttpDelete("{id}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult> DeleteSignal(int id)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? Environment.GetEnvironmentVariable("API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to delete signal {Id}", id);
+                return Unauthorized("Invalid API key");
+            }
+
+            var signal = await _context.ActiveTradingSignals.FindAsync(id);
+            
+            if (signal == null)
+            {
+                _logger.LogWarning("Signal {Id} not found", id);
+                return NotFound($"Signal with ID {id} not found");
+            }
+
+            _context.ActiveTradingSignals.Remove(signal);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Signal {Id} deleted successfully", id);
+            
+            return Ok(new { 
+                id = id,
+                message = "Signal deleted successfully"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Request model for updating swing value
+    /// </summary>
+    public class SwingUpdateRequest
+    {
+        public decimal Swing { get; set; }
     }
 }
