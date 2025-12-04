@@ -231,18 +231,40 @@ namespace TradingSignalsApi.Controllers
                 return BadRequest("Signal data is required");
             }
 
-            // Generate unique key if not provided
-            if (string.IsNullOrEmpty(signal.UniqueKey))
+            // Ensure uniqueness: Symbol + Type (same logic as webhook)
+            var uniqueKey = $"{signal.Symbol}_{signal.Type}";
+            var existingSignal = await _context.ActiveTradingSignals
+                .FirstOrDefaultAsync(s => s.UniqueKey == uniqueKey);
+
+            ActiveTradingSignal activeSignal;
+
+            if (existingSignal != null)
             {
-                signal.UniqueKey = $"{signal.Symbol}_{signal.Type}_{signal.Timestamp:yyyyMMddHHmmss}";
+                // Update existing signal
+                existingSignal.Action = signal.Action;
+                existingSignal.Price = signal.Price;
+                existingSignal.Timestamp = signal.Timestamp;
+                existingSignal.Swing = signal.Swing ?? 0;
+                existingSignal.Resolved = signal.Resolved;
+                existingSignal.Used = signal.Used;
+                
+                activeSignal = existingSignal;
+                _logger.LogInformation("Updated existing signal {Id} of type {Type} for {Symbol}", 
+                    existingSignal.Id, signal.Type, signal.Symbol);
+            }
+            else
+            {
+                // Create new signal
+                signal.UniqueKey = uniqueKey;
+                _context.ActiveTradingSignals.Add(signal);
+                activeSignal = signal;
+                _logger.LogInformation("Created new signal of type {Type} for {Symbol}", 
+                    signal.Type, signal.Symbol);
             }
 
-            _context.ActiveTradingSignals.Add(signal);
             await _context.SaveChangesAsync();
-
-            _logger.LogInformation("Created signal {Id} of type {Type}", signal.Id, signal.Type);
             
-            return CreatedAtAction(nameof(GetActiveSignals), new { id = signal.Id }, new
+            return CreatedAtAction(nameof(GetActiveSignals), new { id = activeSignal.Id }, new
             {
                 id = signal.Id,
                 symbol = signal.Symbol,
