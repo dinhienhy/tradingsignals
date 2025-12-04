@@ -30,7 +30,8 @@ namespace TradingSignalsApi.Models
         public string Type { get; set; }
         
         // Concatenated key for uniqueness check (Symbol_Type)
-        public string UniqueKey { get; set; }
+        // Nullable to allow server to generate it
+        public string? UniqueKey { get; set; }
         
         // Flag to mark if the signal has been used by MT5 bot
         private bool _used = false;
