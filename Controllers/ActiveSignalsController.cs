@@ -209,6 +209,54 @@ namespace TradingSignalsApi.Controllers
         }
 
         /// <summary>
+        /// Create a new active signal (for testing)
+        /// </summary>
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult> CreateSignal([FromBody] ActiveTradingSignal signal)
+        {
+            var apiKey = GetApiKey();
+            var configuredApiKey = _configuration["API_KEY"] ?? Environment.GetEnvironmentVariable("API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey) || apiKey != configuredApiKey)
+            {
+                _logger.LogWarning("Unauthorized access attempt to create signal");
+                return Unauthorized("Invalid API key");
+            }
+
+            if (signal == null)
+            {
+                return BadRequest("Signal data is required");
+            }
+
+            // Generate unique key if not provided
+            if (string.IsNullOrEmpty(signal.UniqueKey))
+            {
+                signal.UniqueKey = $"{signal.Symbol}_{signal.Type}_{signal.Timestamp:yyyyMMddHHmmss}";
+            }
+
+            _context.ActiveTradingSignals.Add(signal);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Created signal {Id} of type {Type}", signal.Id, signal.Type);
+            
+            return CreatedAtAction(nameof(GetActiveSignals), new { id = signal.Id }, new
+            {
+                id = signal.Id,
+                symbol = signal.Symbol,
+                type = signal.Type,
+                action = signal.Action,
+                price = signal.Price,
+                timestamp = signal.Timestamp,
+                resolved = signal.Resolved,
+                swing = signal.Swing,
+                message = "Signal created successfully"
+            });
+        }
+
+        /// <summary>
         /// Mark an active signal as resolved
         /// </summary>
         [HttpPut("resolve/{id}")]
